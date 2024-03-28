@@ -1,4 +1,7 @@
-pub use secp256k1::{ecdsa::Signature, PublicKey, SecretKey};
+pub use {
+    secp256k1::{ecdsa::Signature, PublicKey, SecretKey},
+    semver::Version,
+};
 use {
     sha2::Digest,
     std::{
@@ -6,6 +9,9 @@ use {
         str::FromStr,
     },
 };
+
+#[cfg(test)]
+mod tests;
 
 #[derive(Debug, Clone)]
 pub struct Header {
@@ -36,6 +42,11 @@ impl Header {
     /// Firmware timestamp.
     pub fn timestamp(&self) -> Timestamp {
         self.timestamp
+    }
+
+    /// Human-readable firmware date.
+    pub fn date(&self) -> Date {
+        self.date
     }
 
     /// Firmware version.
@@ -77,7 +88,6 @@ impl Header {
     /// Create a new header and sign it.
     pub fn sign_new(
         magic: Magic,
-        timestamp: Timestamp,
         version: semver::Version,
         firmware_size: u32,
         signer: &Signer,
@@ -89,6 +99,7 @@ impl Header {
         }
 
         // Create the header and calculate the hash to sign.
+        let timestamp = Timestamp::now();
         let mut header = Self {
             magic,
             timestamp,
@@ -222,19 +233,55 @@ impl Header {
         Ok(Some(header))
     }
 
+    /// Serialize the header to a writer.
     pub fn serialize(&self, mut w: impl Write) -> Result<(), Error> {
         self.serialize_without_signatures(&mut w)?;
-        todo!()
+        if let Some(pubkey) = &self.pubkey1 {
+            w.write_all(&pubkey.serialize())?;
+        } else {
+            w.write_all(&[0; 33])?;
+        }
+        w.write_all(&self.signature1.serialize_compact())?;
+        if let Some(pubkey) = &self.pubkey2 {
+            w.write_all(&pubkey.serialize())?;
+        } else {
+            w.write_all(&[0; 33])?;
+        }
+        w.write_all(&self.signature2.serialize_compact())?;
+        w.write_all(&[0; Self::RESERVED])?;
+        Ok(())
     }
 
+    /// Serialize the header without the signatures.
     fn serialize_without_signatures(&self, w: &mut impl Write) -> Result<(), Error> {
-        todo!()
+        w.write_all(&self.magic.as_u32().to_le_bytes())?;
+        w.write_all(&self.timestamp.secs_since_epoch().to_le_bytes())?;
+        w.write_all(self.version.to_string().as_bytes())?;
+        w.write_all(&self.date.0)?;
+        w.write_all(&self.firmware_size.to_le_bytes())?;
+        Ok(())
     }
 
+    /// Add a second signature to the header.
+    ///
+    /// The first signature must be present, and the second signature must be
+    /// missing, otherwise an error is returned.
     pub fn add_second_signature(&mut self, key: &SecretKey) -> Result<(), Error> {
-        todo!()
+        if self.signature1.serialize_compact() == [0; 64] {
+            return Err(Error::FirstSignatureMissing);
+        }
+        if self.signature2.serialize_compact() != [0; 64] {
+            return Err(Error::SecondSignaturePresent);
+        }
+        let secp = secp256k1::Secp256k1::new();
+        self.pubkey2 = Some(key.public_key(&secp));
+        self.signature2 = secp.sign_ecdsa(&self.hash, key);
+        Ok(())
     }
 
+    /// Calculate the hash of the header and firmware code.
+    ///
+    /// Updates the `hash` field of the header.
     fn calculate_hash(&mut self, data: &mut impl Read) -> Result<(), Error> {
         // Calculate the hash of the header and firmware code.
         let mut hasher = sha2::Sha256::new();
@@ -253,7 +300,7 @@ impl Header {
 
         // Do a second hash to avoid length extension attacks.
         self.hash =
-            secp256k1::Message::from_digest_slice(&sha2::Sha256::digest(&hash)).expect("32 bytes");
+            secp256k1::Message::from_digest_slice(&sha2::Sha256::digest(hash)).expect("32 bytes");
 
         Ok(())
     }
@@ -261,9 +308,16 @@ impl Header {
 
 const VERSION_SIZE: usize = 20;
 
-/// TODO Explain this
+/// Who is signing the firmware.
 pub enum Signer {
+    /// Trusted key from Foundation Devices, Inc.
+    ///
+    /// Headers signed by trusted keys expect both signatures to be filled in.
     Trusted(SecretKey),
+    /// Third-party developer key.
+    ///
+    /// Headers signed by developer keys expect only the second signature to be
+    /// filled in. The first signature is left empty (zeroed out).
     Developer(SecretKey),
 }
 
@@ -273,7 +327,7 @@ pub enum Signer {
 /// different devices if needed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Magic {
-    KeyOs,
+    Atsama5d27KeyOs,
 }
 
 impl Magic {
@@ -282,14 +336,14 @@ impl Magic {
     /// Returns `None` if the value is not recognized.
     fn from_u32(n: u32) -> Option<Self> {
         match n {
-            0x12345678 => Some(Self::KeyOs),
+            0x12345678 => Some(Self::Atsama5d27KeyOs),
             _ => None,
         }
     }
 
     fn as_u32(&self) -> u32 {
         match self {
-            Self::KeyOs => 0x12345678,
+            Self::Atsama5d27KeyOs => 0x12345678,
         }
     }
 }
@@ -300,24 +354,24 @@ pub struct Timestamp(chrono::DateTime<chrono::Utc>);
 
 impl Timestamp {
     /// Create the timestamp given the number of seconds since the Unix epoch.
-    pub fn new(timestamp: u32) -> Result<Self, Error> {
+    fn new(timestamp: u32) -> Result<Self, Error> {
         chrono::DateTime::from_timestamp(timestamp.into(), 0)
             .ok_or(Error::InvalidTimestamp)
             .map(Self)
     }
 
     /// The timestamp at this moment.
-    pub fn now() -> Self {
+    fn now() -> Self {
         Self(chrono::Utc::now())
     }
 
     /// The timestamp as seconds since the Unix epoch.
-    fn secs_since_epoch(&self) -> u32 {
+    pub fn secs_since_epoch(&self) -> u32 {
         self.0.timestamp().try_into().expect("year 2106")
     }
 
     /// The timestamp as a human-readable date.
-    pub fn date(&self) -> Date {
+    fn date(&self) -> Date {
         let mut buf = [0; 14];
         let date = self.0.format("%b %d %Y").to_string();
         let date = date.as_bytes();
@@ -337,8 +391,8 @@ impl Timestamp {
 ///
 /// Used for displaying in the firmware, where advanced date manipulation
 /// functions are not available.
-#[derive(Debug, Clone, Copy)]
-struct Date([u8; 14]);
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Date([u8; 14]);
 
 /// Read a fixed-size buffer from a reader.
 ///
@@ -381,6 +435,8 @@ pub enum Error {
     InvalidPubkey2,
     InvalidSignature1,
     InvalidSignature2,
+    FirstSignatureMissing,
+    SecondSignaturePresent,
     Io(std::io::Error),
 }
 
