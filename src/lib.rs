@@ -113,7 +113,15 @@ impl Header {
             signature2: Signature::from_compact(&[0; 64]).expect("64 bytes"),
             hash: secp256k1::Message::from_digest([0; 32]),
         };
-        header.calculate_hash(&mut data)?;
+        let n = header.calculate_hash(&mut data)?;
+
+        // Check that the firmware size matches the number of bytes read.
+        if n != firmware_size {
+            return Err(Error::InvalidFirmwareSize {
+                in_header: firmware_size,
+                actual: n,
+            });
+        }
 
         // Sign the header.
         match signer {
@@ -206,8 +214,15 @@ impl Header {
             signature2,
             hash: secp256k1::Message::from_digest([0; 32]),
         };
-        // TODO Make this return the number of bytes read and check the firmware size.
-        header.calculate_hash(&mut r)?;
+        let n = header.calculate_hash(&mut r)?;
+
+        // Check that the firmware size matches the number of bytes read.
+        if n != firmware_size {
+            return Err(Error::InvalidFirmwareSize {
+                in_header: firmware_size,
+                actual: n,
+            });
+        }
 
         // Verify the signatures.
         let secp = secp256k1::Secp256k1::new();
@@ -288,19 +303,24 @@ impl Header {
 
     /// Calculate the hash of the header and firmware code.
     ///
-    /// Updates the `hash` field of the header.
-    fn calculate_hash(&mut self, data: &mut impl Read) -> Result<(), Error> {
+    /// Updates the `hash` field of the header. Returns the number of bytes
+    /// read.
+    fn calculate_hash(&mut self, data: &mut impl Read) -> Result<u32, Error> {
         // Calculate the hash of the header and firmware code.
         let mut hasher = sha2::Sha256::new();
         // First hash the header itself.
         self.serialize_without_signatures(&mut hasher)?;
         // Hash the firmware code.
+        let mut count = 0u32;
         let mut buf = [0; 1024];
         loop {
             let n = data.read(&mut buf)?;
             if n == 0 {
                 break;
             }
+            count = count
+                .checked_add(n.try_into().unwrap())
+                .ok_or(Error::FirmwareTooLong)?;
             hasher.update(&buf[..n]);
         }
         let hash = hasher.finalize();
@@ -309,7 +329,7 @@ impl Header {
         self.hash =
             secp256k1::Message::from_digest_slice(&sha2::Sha256::digest(hash)).expect("32 bytes");
 
-        Ok(())
+        Ok(count)
     }
 }
 
@@ -448,6 +468,8 @@ pub enum Error {
     InvalidSignature2,
     FirstSignatureMissing,
     SecondSignaturePresent,
+    FirmwareTooLong,
+    InvalidFirmwareSize { in_header: u32, actual: u32 },
     Io(std::io::Error),
 }
 
