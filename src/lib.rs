@@ -1,13 +1,14 @@
-pub use {
-    secp256k1::{ecdsa::Signature, PublicKey, SecretKey},
-    semver::Version,
-};
 use {
+    chrono::Timelike,
     sha2::Digest,
     std::{
         io::{Read, Write},
         str::FromStr,
     },
+};
+pub use {
+    secp256k1::{ecdsa::Signature, PublicKey, SecretKey},
+    semver::Version,
 };
 
 #[cfg(test)]
@@ -205,6 +206,7 @@ impl Header {
             signature2,
             hash: secp256k1::Message::from_digest([0; 32]),
         };
+        // TODO Make this return the number of bytes read and check the firmware size.
         header.calculate_hash(&mut r)?;
 
         // Verify the signatures.
@@ -256,7 +258,12 @@ impl Header {
     fn serialize_without_signatures(&self, w: &mut impl Write) -> Result<(), Error> {
         w.write_all(&self.magic.as_u32().to_le_bytes())?;
         w.write_all(&self.timestamp.secs_since_epoch().to_le_bytes())?;
-        w.write_all(self.version.to_string().as_bytes())?;
+        let version = self.version.to_string();
+        let version = version.as_bytes();
+        w.write_all(version)?;
+        for _ in version.len()..VERSION_SIZE {
+            w.write_all(&[0])?;
+        }
         w.write_all(&self.date.0)?;
         w.write_all(&self.firmware_size.to_le_bytes())?;
         Ok(())
@@ -362,7 +369,11 @@ impl Timestamp {
 
     /// The timestamp at this moment.
     fn now() -> Self {
-        Self(chrono::Utc::now())
+        Self(
+            chrono::Utc::now()
+                .with_nanosecond(0)
+                .expect("no nanoseconds"),
+        )
     }
 
     /// The timestamp as seconds since the Unix epoch.

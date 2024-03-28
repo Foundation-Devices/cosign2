@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, std::io};
 
 #[test]
 fn sign_new_and_serialize_and_parse() {
@@ -14,6 +14,7 @@ fn sign_new_and_serialize_and_parse() {
     .unwrap();
     let mut buf = Vec::new();
     header.serialize(&mut buf).unwrap();
+    io::copy(&mut &firmware[..], &mut buf).unwrap();
     let parsed = Header::parse(&buf[..]).unwrap().unwrap();
     assert_eq!(header.magic(), parsed.magic());
     assert_eq!(header.timestamp(), parsed.timestamp());
@@ -24,8 +25,8 @@ fn sign_new_and_serialize_and_parse() {
     assert_eq!(header.signature1(), parsed.signature1());
     assert_eq!(header.pubkey2(), parsed.pubkey2());
     assert_eq!(header.signature2(), parsed.signature2());
-    assert!(header.pubkey1().is_some());
-    assert!(header.signature1().serialize_compact() != [0; 64]);
-    assert!(header.pubkey2().is_none());
-    assert!(header.signature2().serialize_compact() == [0; 64]);
+    assert!(header.pubkey1().is_none());
+    assert!(header.signature1().serialize_compact() == [0; 64]);
+    assert!(header.pubkey2().is_some());
+    assert!(header.signature2().serialize_compact() != [0; 64]);
 }
