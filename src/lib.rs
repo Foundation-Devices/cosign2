@@ -4,7 +4,6 @@ use {
     std::{
         io::{Read, Write},
         str::FromStr,
-        time::SystemTime,
     },
 };
 
@@ -19,12 +18,11 @@ pub struct Header {
     signature1: secp256k1::ecdsa::Signature,
     pubkey2: Option<PublicKey>,
     signature2: secp256k1::ecdsa::Signature,
-    /// Hash of the header and firmware code.
+    /// Hash of the header (without signatures) and firmware code.
     hash: secp256k1::Message,
 }
 
 impl Header {
-    // TODO Update this, each pubkey is 33 bytes I think
     /// Number of reserved bytes at the end of the header.
     ///
     /// These must be zeroed out when writing the header.
@@ -83,22 +81,51 @@ impl Header {
         version: semver::Version,
         firmware_size: u32,
         signer: &Signer,
-        data: &mut impl Read,
-    ) -> Self {
-        // TODO Check that the version is less than 20 bytes and only ASCII
-        // TODO Also check the signature here
-        Self {
+        mut data: impl Read,
+    ) -> Result<Self, Error> {
+        // Check version length.
+        if version.to_string().len() > VERSION_SIZE {
+            return Err(Error::VersionTooLong);
+        }
+
+        // Create the header and calculate the hash to sign.
+        let mut header = Self {
             magic,
             timestamp,
+            date: timestamp.date(),
             version,
             firmware_size,
-            date: todo!(),
-            pubkey1: todo!(),
-            signature1: todo!(),
-            pubkey2: todo!(),
-            signature2: todo!(),
-            hash: todo!(),
+            pubkey1: None,
+            signature1: Signature::from_compact(&[0; 64]).expect("64 bytes"),
+            pubkey2: None,
+            signature2: Signature::from_compact(&[0; 64]).expect("64 bytes"),
+            hash: secp256k1::Message::from_digest([0; 32]),
+        };
+        header.calculate_hash(&mut data)?;
+
+        // Sign the header.
+        match signer {
+            Signer::Trusted(key) => {
+                // Trusted key is used, so both first and second signatures need to be filled
+                // in. This key is used for the first signature.
+                let secp = secp256k1::Secp256k1::new();
+                let pubkey = PublicKey::from_secret_key(&secp, key);
+                let signature = secp.sign_ecdsa(&header.hash, key);
+                header.pubkey1 = Some(pubkey);
+                header.signature1 = signature;
+            }
+            Signer::Developer(key) => {
+                // Developer key is used, so only the second signature is filled in.
+                // The first signature is left empty (zeroed out).
+                let secp = secp256k1::Secp256k1::new();
+                let pubkey = PublicKey::from_secret_key(&secp, key);
+                let signature = secp.sign_ecdsa(&header.hash, key);
+                header.pubkey2 = Some(pubkey);
+                header.signature2 = signature;
+            }
         }
+
+        Ok(header)
     }
 
     /// Parse a header from a reader.
@@ -106,15 +133,12 @@ impl Header {
     /// If the header is missing, `None` is returned, and only one byte is
     /// consumed from the reader. Otherwise, the reader is advanced to the end.
     pub fn parse(mut r: impl Read) -> Result<Option<Self>, Error> {
-        // TODO Retain the hasher instance here
-        // TODO Don't forget to check the signature
-        // TODO Check that the version is less than 20 bytes and only ASCII
         // Parse all of the header fields.
         let Some(magic) = read_u32(&mut r)?.and_then(Magic::from_u32) else {
             // Magic value is missing or not recognized, so this is not a header.
             return Ok(None);
         };
-        let timestamp = Timestamp(read_u32(&mut r)?.ok_or(Error::HeaderTooShort)?);
+        let timestamp = Timestamp::new(read_u32(&mut r)?.ok_or(Error::HeaderTooShort)?)?;
         // Parse the version string, terminating at the first zero byte.
         let version = read::<VERSION_SIZE>(&mut r)?.ok_or(Error::HeaderTooShort)?;
         let first_zero = version.iter().position(|&b| b == 0).unwrap_or(VERSION_SIZE);
@@ -157,10 +181,8 @@ impl Header {
             return Err(Error::InvalidReservedBytes);
         }
 
-        // Calculate the hash of the header and firmware code.
-        let mut hasher = sha2::Sha256::new();
-        // First hash the header itself.
-        let header = Self {
+        // Create the header and calculate the hash for signature verification.
+        let mut header = Self {
             magic,
             timestamp,
             date,
@@ -172,23 +194,7 @@ impl Header {
             signature2,
             hash: secp256k1::Message::from_digest([0; 32]),
         };
-        header.serialize_without_signatures(&mut hasher)?;
-        // Hash the firmware code.
-        let mut buf = [0; 1024];
-        loop {
-            let n = r.read(&mut buf)?;
-            if n == 0 {
-                break;
-            }
-            hasher.update(&buf[..n]);
-        }
-        let hash = hasher.finalize();
-        let header = Header {
-            // Do a second hash to avoid length extension attacks.
-            hash: secp256k1::Message::from_digest_slice(&sha2::Sha256::digest(&hash))
-                .expect("32 bytes"),
-            ..header
-        };
+        header.calculate_hash(&mut r)?;
 
         // Verify the signatures.
         let secp = secp256k1::Secp256k1::new();
@@ -227,6 +233,29 @@ impl Header {
 
     pub fn add_second_signature(&mut self, key: &SecretKey) -> Result<(), Error> {
         todo!()
+    }
+
+    fn calculate_hash(&mut self, data: &mut impl Read) -> Result<(), Error> {
+        // Calculate the hash of the header and firmware code.
+        let mut hasher = sha2::Sha256::new();
+        // First hash the header itself.
+        self.serialize_without_signatures(&mut hasher)?;
+        // Hash the firmware code.
+        let mut buf = [0; 1024];
+        loop {
+            let n = data.read(&mut buf)?;
+            if n == 0 {
+                break;
+            }
+            hasher.update(&buf[..n]);
+        }
+        let hash = hasher.finalize();
+
+        // Do a second hash to avoid length extension attacks.
+        self.hash =
+            secp256k1::Message::from_digest_slice(&sha2::Sha256::digest(&hash)).expect("32 bytes");
+
+        Ok(())
     }
 }
 
@@ -267,27 +296,40 @@ impl Magic {
 
 /// A timestamp in seconds since the Unix epoch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Timestamp(u32);
+pub struct Timestamp(chrono::DateTime<chrono::Utc>);
 
 impl Timestamp {
-    pub fn new(t: SystemTime) -> Self {
-        Self(
-            t.duration_since(SystemTime::UNIX_EPOCH)
-                .expect("invalid time, system clock might be incorrect")
-                .as_secs()
-                .try_into()
-                .expect("timestamp overflow, system clock might be incorrect"),
-        )
+    /// Create the timestamp given the number of seconds since the Unix epoch.
+    pub fn new(timestamp: u32) -> Result<Self, Error> {
+        chrono::DateTime::from_timestamp(timestamp.into(), 0)
+            .ok_or(Error::InvalidTimestamp)
+            .map(Self)
     }
 
     /// The timestamp at this moment.
     pub fn now() -> Self {
-        Self::new(SystemTime::now())
+        Self(chrono::Utc::now())
     }
 
     /// The timestamp as seconds since the Unix epoch.
     fn secs_since_epoch(&self) -> u32 {
-        self.0
+        self.0.timestamp().try_into().expect("year 2106")
+    }
+
+    /// The timestamp as a human-readable date.
+    pub fn date(&self) -> Date {
+        let mut buf = [0; 14];
+        let date = self.0.format("%b %d %Y").to_string();
+        let date = date.as_bytes();
+        if date.len() > buf.len() {
+            panic!(
+                "date too long ({} > {}), should never happen",
+                date.len(),
+                buf.len()
+            );
+        }
+        buf[..date.len()].copy_from_slice(date);
+        Date(buf)
     }
 }
 
@@ -328,9 +370,11 @@ fn read_u32(r: &mut impl Read) -> std::io::Result<Option<u32>> {
 pub enum Error {
     HeaderWithNoSignature,
     HeaderTooShort,
+    InvalidTimestamp,
     InvalidReservedBytes,
     DuplicatePubkeys,
     InvalidVersionUtf8,
+    VersionTooLong,
     InvalidVersionSemver,
     InvalidPrivateKey,
     InvalidPubkey1,
