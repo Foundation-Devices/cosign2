@@ -1,7 +1,7 @@
 name: CI
 
 on:
-  push: [master]
+  push:
   pull_request:
   workflow_dispatch:
   schedule: [cron: "40 1 * * *"]
