@@ -30,6 +30,9 @@ pub struct Header {
 }
 
 impl Header {
+    /// Size of the header in bytes.
+    pub const SIZE: usize = 2048;
+
     /// Number of reserved bytes at the end of the header.
     ///
     /// These must be zeroed out when writing the header.
@@ -166,7 +169,10 @@ impl Header {
             std::str::from_utf8(&version[..first_zero]).map_err(|_| Error::HeaderTooShort)?;
         let version =
             semver::Version::from_str(version).map_err(|_| Error::InvalidVersionSemver)?;
+        // Parse and validate the date string.
         let date = Date(read(&mut r)?.ok_or(Error::HeaderTooShort)?);
+        let first_zero = date.0.iter().position(|&b| b == 0).unwrap_or(DATE_SIZE);
+        std::str::from_utf8(&date.0[..first_zero]).map_err(|_| Error::InvalidDateUtf8)?;
         let firmware_size = read_u32(&mut r)?.ok_or(Error::HeaderTooShort)?;
         let pubkey1 = read::<33>(&mut r)?.ok_or(Error::HeaderTooShort)?;
         let pubkey1 = if pubkey1 == [0; 33] {
@@ -272,7 +278,7 @@ impl Header {
     /// Serialize the header without the signatures.
     fn serialize_without_signatures(&self, w: &mut impl Write) -> Result<(), Error> {
         w.write_all(&self.magic.as_u32().to_le_bytes())?;
-        w.write_all(&self.timestamp.secs_since_epoch().to_le_bytes())?;
+        w.write_all(&self.timestamp.as_secs_since_epoch().to_le_bytes())?;
         let version = self.version.to_string();
         let version = version.as_bytes();
         w.write_all(version)?;
@@ -376,8 +382,16 @@ impl Magic {
 }
 
 /// A timestamp in seconds since the Unix epoch.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Timestamp(chrono::DateTime<chrono::Utc>);
+
+impl std::fmt::Debug for Timestamp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("Timestamp")
+            .field(&self.as_secs_since_epoch())
+            .finish()
+    }
+}
 
 impl Timestamp {
     /// Create the timestamp given the number of seconds since the Unix epoch.
@@ -397,13 +411,13 @@ impl Timestamp {
     }
 
     /// The timestamp as seconds since the Unix epoch.
-    pub fn secs_since_epoch(&self) -> u32 {
+    pub fn as_secs_since_epoch(&self) -> u32 {
         self.0.timestamp().try_into().expect("year 2106")
     }
 
     /// The timestamp as a human-readable date.
     fn date(&self) -> Date {
-        let mut buf = [0; 14];
+        let mut buf = [0; DATE_SIZE];
         let date = self.0.format("%b %d %Y").to_string();
         let date = date.as_bytes();
         if date.len() > buf.len() {
@@ -418,12 +432,28 @@ impl Timestamp {
     }
 }
 
+const DATE_SIZE: usize = 14;
+
 /// Human-readable date.
 ///
 /// Used for displaying in the firmware, where advanced date manipulation
 /// functions are not available.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Date([u8; 14]);
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Date([u8; DATE_SIZE]);
+
+impl std::fmt::Debug for Date {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("Date").field(&self.as_str()).finish()
+    }
+}
+
+impl Date {
+    /// Convert the date to a string.
+    pub fn as_str(&self) -> &str {
+        let first_zero = self.0.iter().position(|&b| b == 0).unwrap_or(DATE_SIZE);
+        std::str::from_utf8(&self.0[..first_zero]).expect("valid UTF-8")
+    }
+}
 
 /// Read a fixed-size buffer from a reader.
 ///
@@ -469,6 +499,7 @@ pub enum Error {
     FirstSignatureMissing,
     SecondSignaturePresent,
     FirmwareTooLong,
+    InvalidDateUtf8,
     InvalidFirmwareSize { in_header: u32, actual: u32 },
     Io(std::io::Error),
 }
