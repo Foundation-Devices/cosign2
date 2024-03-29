@@ -53,13 +53,13 @@ fn developer_singing() {
     // Date.
     assert!(MONTHS.contains(&&buf[28..31]));
     assert_eq!(buf[31], b' ');
-    assert!(DIGITS.contains(&&buf[32]));
-    assert!(DIGITS.contains(&&buf[33]));
+    assert!(DIGITS.contains(&buf[32]));
+    assert!(DIGITS.contains(&buf[33]));
     assert_eq!(buf[34], b' ');
-    assert!(DIGITS.contains(&&buf[35]));
-    assert!(DIGITS.contains(&&buf[36]));
-    assert!(DIGITS.contains(&&buf[37]));
-    assert!(DIGITS.contains(&&buf[38]));
+    assert!(DIGITS.contains(&buf[35]));
+    assert!(DIGITS.contains(&buf[36]));
+    assert!(DIGITS.contains(&buf[37]));
+    assert!(DIGITS.contains(&buf[38]));
     assert_eq!(&buf[39..42], &[0, 0, 0]);
     // Firmware size.
     assert_eq!(buf[42..46], [4, 0, 0, 0]);
@@ -130,13 +130,13 @@ fn trusted_singing() {
     // Date.
     assert!(MONTHS.contains(&&buf[28..31]));
     assert_eq!(buf[31], b' ');
-    assert!(DIGITS.contains(&&buf[32]));
-    assert!(DIGITS.contains(&&buf[33]));
+    assert!(DIGITS.contains(&buf[32]));
+    assert!(DIGITS.contains(&buf[33]));
     assert_eq!(buf[34], b' ');
-    assert!(DIGITS.contains(&&buf[35]));
-    assert!(DIGITS.contains(&&buf[36]));
-    assert!(DIGITS.contains(&&buf[37]));
-    assert!(DIGITS.contains(&&buf[38]));
+    assert!(DIGITS.contains(&buf[35]));
+    assert!(DIGITS.contains(&buf[36]));
+    assert!(DIGITS.contains(&buf[37]));
+    assert!(DIGITS.contains(&buf[38]));
     assert_eq!(&buf[39..42], &[0, 0, 0]);
     // Firmware size.
     assert_eq!(buf[42..46], [4, 0, 0, 0]);
@@ -196,13 +196,13 @@ fn trusted_singing() {
     // Date.
     assert!(MONTHS.contains(&&buf[28..31]));
     assert_eq!(buf[31], b' ');
-    assert!(DIGITS.contains(&&buf[32]));
-    assert!(DIGITS.contains(&&buf[33]));
+    assert!(DIGITS.contains(&buf[32]));
+    assert!(DIGITS.contains(&buf[33]));
     assert_eq!(buf[34], b' ');
-    assert!(DIGITS.contains(&&buf[35]));
-    assert!(DIGITS.contains(&&buf[36]));
-    assert!(DIGITS.contains(&&buf[37]));
-    assert!(DIGITS.contains(&&buf[38]));
+    assert!(DIGITS.contains(&buf[35]));
+    assert!(DIGITS.contains(&buf[36]));
+    assert!(DIGITS.contains(&buf[37]));
+    assert!(DIGITS.contains(&buf[38]));
     assert_eq!(&buf[39..42], &[0, 0, 0]);
     // Firmware size.
     assert_eq!(buf[42..46], [4, 0, 0, 0]);
