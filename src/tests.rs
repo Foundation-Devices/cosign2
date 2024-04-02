@@ -8,10 +8,11 @@ const DIGITS: [u8; 10] = [b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', 
 #[test]
 fn developer_singing() {
     let firmware = [0x01, 0x02, 0x03, 0x04];
-    let secret_key = SecretKey::from_slice(&[0xcd; 32]).expect("32 bytes, within curve order");
+    let secret_key =
+        secp256k1::SecretKey::from_slice(&[0xcd; 32]).expect("32 bytes, within curve order");
     let header = Header::sign_new(
         Magic::Atsama5d27KeyOs,
-        Version::new(1, 2, 3),
+        semver::Version::new(1, 2, 3),
         firmware.len().try_into().unwrap(),
         &Signer::Developer(secret_key),
         &firmware[..],
@@ -20,7 +21,12 @@ fn developer_singing() {
     let mut buf = Vec::new();
     header.serialize(&mut buf).unwrap();
     io::copy(&mut &firmware[..], &mut buf).unwrap();
-    let parsed = Header::parse(&buf[..]).unwrap().unwrap();
+    let parsed = Header::parse(
+        &buf[..],
+        &[secret_key.public_key(&secp256k1::Secp256k1::new())],
+    )
+    .unwrap()
+    .unwrap();
 
     // The parsed header is the same as the serialized header.
     assert_eq!(header.magic(), parsed.magic());
@@ -44,10 +50,7 @@ fn developer_singing() {
     // Magic number.
     assert_eq!(buf[..4], [0x78, 0x56, 0x34, 0x12]);
     // Timestamp.
-    assert_eq!(
-        buf[4..8],
-        header.timestamp().as_secs_since_epoch().to_le_bytes()
-    );
+    assert_eq!(buf[4..8], header.timestamp().to_le_bytes(),);
     // Version.
     assert_eq!(&buf[8..28], b"1.2.3\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0");
     // Date.
@@ -78,17 +81,19 @@ fn developer_singing() {
     // Signature 2.
     assert_ne!(buf[176..240], [0; 64]);
     // Reserved.
-    assert_eq!(&buf[240..Header::SIZE], [0; Header::RESERVED]);
+    assert!(&buf[240..Header::SIZE].iter().all(|&b| b == 0));
 }
 
 #[test]
 fn trusted_singing() {
     let firmware = [0x01, 0x02, 0x03, 0x04];
-    let secret_key1 = SecretKey::from_slice(&[0xcd; 32]).expect("32 bytes, within curve order");
-    let secret_key2 = SecretKey::from_slice(&[0xce; 32]).expect("32 bytes, within curve order");
+    let secret_key1 =
+        secp256k1::SecretKey::from_slice(&[0xcd; 32]).expect("32 bytes, within curve order");
+    let secret_key2 =
+        secp256k1::SecretKey::from_slice(&[0xce; 32]).expect("32 bytes, within curve order");
     let mut header = Header::sign_new(
         Magic::Atsama5d27KeyOs,
-        Version::parse("1.2.3-alpha1").unwrap(),
+        semver::Version::parse("1.2.3-alpha1").unwrap(),
         firmware.len().try_into().unwrap(),
         &Signer::Trusted(secret_key1),
         &firmware[..],
@@ -97,7 +102,12 @@ fn trusted_singing() {
     let mut buf = Vec::new();
     header.serialize(&mut buf).unwrap();
     io::copy(&mut &firmware[..], &mut buf).unwrap();
-    let parsed = Header::parse(&buf[..]).unwrap().unwrap();
+    let parsed = Header::parse(
+        &buf[..],
+        &[secret_key1.public_key(&secp256k1::Secp256k1::new())],
+    )
+    .unwrap()
+    .unwrap();
 
     // The parsed header is the same as the serialized header.
     assert_eq!(header.magic(), parsed.magic());
@@ -121,10 +131,7 @@ fn trusted_singing() {
     // Magic number.
     assert_eq!(buf[..4], [0x78, 0x56, 0x34, 0x12]);
     // Timestamp.
-    assert_eq!(
-        buf[4..8],
-        header.timestamp().as_secs_since_epoch().to_le_bytes()
-    );
+    assert_eq!(buf[4..8], header.timestamp().to_le_bytes());
     // Version.
     assert_eq!(&buf[8..28], b"1.2.3-alpha1\0\0\0\0\0\0\0\0");
     // Date.
@@ -155,7 +162,7 @@ fn trusted_singing() {
     // Signature 2.
     assert_eq!(buf[176..240], [0; 64]);
     // Reserved.
-    assert_eq!(&buf[240..Header::SIZE], [0; Header::RESERVED]);
+    assert!(&buf[240..Header::SIZE].iter().all(|&b| b == 0));
 
     // Add second signature.
     header.add_second_signature(&secret_key2).unwrap();
@@ -163,7 +170,15 @@ fn trusted_singing() {
     let mut buf = Vec::new();
     header.serialize(&mut buf).unwrap();
     io::copy(&mut &firmware[..], &mut buf).unwrap();
-    let parsed = Header::parse(&buf[..]).unwrap().unwrap();
+    let parsed = Header::parse(
+        &buf[..],
+        &[
+            secret_key1.public_key(&secp256k1::Secp256k1::new()),
+            secret_key2.public_key(&secp256k1::Secp256k1::new()),
+        ],
+    )
+    .unwrap()
+    .unwrap();
 
     // The parsed header is the same as the serialized header.
     assert_eq!(header.magic(), parsed.magic());
@@ -187,10 +202,7 @@ fn trusted_singing() {
     // Magic number.
     assert_eq!(buf[..4], [0x78, 0x56, 0x34, 0x12]);
     // Timestamp.
-    assert_eq!(
-        buf[4..8],
-        header.timestamp().as_secs_since_epoch().to_le_bytes()
-    );
+    assert_eq!(buf[4..8], header.timestamp().to_le_bytes());
     // Version.
     assert_eq!(&buf[8..28], b"1.2.3-alpha1\0\0\0\0\0\0\0\0");
     // Date.
@@ -227,5 +239,5 @@ fn trusted_singing() {
     // Signature 2.
     assert_ne!(buf[176..240], [0; 64]);
     // Reserved.
-    assert_eq!(&buf[240..Header::SIZE], [0; Header::RESERVED]);
+    assert!(&buf[240..Header::SIZE].iter().all(|&b| b == 0));
 }
