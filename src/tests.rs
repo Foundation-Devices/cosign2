@@ -14,7 +14,7 @@ fn developer_singing() {
         Magic::Atsama5d27KeyOs,
         semver::Version::new(1, 2, 3),
         firmware.len().try_into().unwrap(),
-        &Signer::Developer(secret_key),
+        Signer::Developer(&secret_key),
         &firmware[..],
     )
     .unwrap();
@@ -41,9 +41,9 @@ fn developer_singing() {
 
     // The signing procedure filled in the correct field.
     assert!(header.pubkey1().is_none());
-    assert!(header.signature1().serialize_compact() == [0; 64]);
+    assert!(header.signature1().is_none());
     assert!(header.pubkey2().is_some());
-    assert!(header.signature2().serialize_compact() != [0; 64]);
+    assert!(header.signature2().is_some());
 
     // The binary representation is correct.
     assert_eq!(buf.len(), Header::SIZE + firmware.len());
@@ -51,19 +51,19 @@ fn developer_singing() {
     assert_eq!(buf[..4], [0x78, 0x56, 0x34, 0x12]);
     // Timestamp.
     assert_eq!(buf[4..8], header.timestamp().to_le_bytes(),);
-    // Version.
-    assert_eq!(&buf[8..28], b"1.2.3\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0");
     // Date.
-    assert!(MONTHS.contains(&&buf[28..31]));
-    assert_eq!(buf[31], b' ');
-    assert!(DIGITS.contains(&buf[32]));
-    assert!(DIGITS.contains(&buf[33]));
-    assert_eq!(buf[34], b' ');
-    assert!(DIGITS.contains(&buf[35]));
-    assert!(DIGITS.contains(&buf[36]));
-    assert!(DIGITS.contains(&buf[37]));
-    assert!(DIGITS.contains(&buf[38]));
-    assert_eq!(&buf[39..42], &[0, 0, 0]);
+    assert!(MONTHS.contains(&&buf[8..11]));
+    assert_eq!(buf[11], b' ');
+    assert!(DIGITS.contains(&buf[12]));
+    assert!(DIGITS.contains(&buf[13]));
+    assert_eq!(buf[14], b' ');
+    assert!(DIGITS.contains(&buf[15]));
+    assert!(DIGITS.contains(&buf[16]));
+    assert!(DIGITS.contains(&buf[17]));
+    assert!(DIGITS.contains(&buf[18]));
+    assert_eq!(&buf[19..22], &[0, 0, 0]);
+    // Version.
+    assert_eq!(&buf[22..42], b"1.2.3\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0");
     // Firmware size.
     assert_eq!(buf[42..46], [4, 0, 0, 0]);
     // Public key 1.
@@ -95,7 +95,7 @@ fn trusted_singing() {
         Magic::Atsama5d27KeyOs,
         semver::Version::parse("1.2.3-alpha1").unwrap(),
         firmware.len().try_into().unwrap(),
-        &Signer::Trusted(secret_key1),
+        Signer::Trusted(&secret_key1),
         &firmware[..],
     )
     .unwrap();
@@ -122,9 +122,9 @@ fn trusted_singing() {
 
     // The signing procedure filled in the correct field.
     assert!(header.pubkey1().is_some());
-    assert!(header.signature1().serialize_compact() != [0; 64]);
+    assert!(header.signature1().is_some());
     assert!(header.pubkey2().is_none());
-    assert!(header.signature2().serialize_compact() == [0; 64]);
+    assert!(header.signature2().is_none());
 
     // The binary representation is correct.
     assert_eq!(buf.len(), Header::SIZE + firmware.len());
@@ -132,19 +132,19 @@ fn trusted_singing() {
     assert_eq!(buf[..4], [0x78, 0x56, 0x34, 0x12]);
     // Timestamp.
     assert_eq!(buf[4..8], header.timestamp().to_le_bytes());
-    // Version.
-    assert_eq!(&buf[8..28], b"1.2.3-alpha1\0\0\0\0\0\0\0\0");
     // Date.
-    assert!(MONTHS.contains(&&buf[28..31]));
-    assert_eq!(buf[31], b' ');
-    assert!(DIGITS.contains(&buf[32]));
-    assert!(DIGITS.contains(&buf[33]));
-    assert_eq!(buf[34], b' ');
-    assert!(DIGITS.contains(&buf[35]));
-    assert!(DIGITS.contains(&buf[36]));
-    assert!(DIGITS.contains(&buf[37]));
-    assert!(DIGITS.contains(&buf[38]));
-    assert_eq!(&buf[39..42], &[0, 0, 0]);
+    assert!(MONTHS.contains(&&buf[8..11]));
+    assert_eq!(buf[11], b' ');
+    assert!(DIGITS.contains(&buf[12]));
+    assert!(DIGITS.contains(&buf[13]));
+    assert_eq!(buf[14], b' ');
+    assert!(DIGITS.contains(&buf[15]));
+    assert!(DIGITS.contains(&buf[16]));
+    assert!(DIGITS.contains(&buf[17]));
+    assert!(DIGITS.contains(&buf[18]));
+    assert_eq!(&buf[19..22], &[0, 0, 0]);
+    // Version.
+    assert_eq!(&buf[22..42], b"1.2.3-alpha1\0\0\0\0\0\0\0\0");
     // Firmware size.
     assert_eq!(buf[42..46], [4, 0, 0, 0]);
     // Public key 1.
@@ -193,9 +193,9 @@ fn trusted_singing() {
 
     // The signing procedure filled in the correct fields.
     assert!(header.pubkey1().is_some());
-    assert!(header.signature1().serialize_compact() != [0; 64]);
+    assert!(header.signature1().is_some());
     assert!(header.pubkey2().is_some());
-    assert!(header.signature2().serialize_compact() != [0; 64]);
+    assert!(header.signature2().is_some());
 
     // The binary representation is correct.
     assert_eq!(buf.len(), Header::SIZE + firmware.len());
@@ -203,19 +203,19 @@ fn trusted_singing() {
     assert_eq!(buf[..4], [0x78, 0x56, 0x34, 0x12]);
     // Timestamp.
     assert_eq!(buf[4..8], header.timestamp().to_le_bytes());
-    // Version.
-    assert_eq!(&buf[8..28], b"1.2.3-alpha1\0\0\0\0\0\0\0\0");
     // Date.
-    assert!(MONTHS.contains(&&buf[28..31]));
-    assert_eq!(buf[31], b' ');
-    assert!(DIGITS.contains(&buf[32]));
-    assert!(DIGITS.contains(&buf[33]));
-    assert_eq!(buf[34], b' ');
-    assert!(DIGITS.contains(&buf[35]));
-    assert!(DIGITS.contains(&buf[36]));
-    assert!(DIGITS.contains(&buf[37]));
-    assert!(DIGITS.contains(&buf[38]));
-    assert_eq!(&buf[39..42], &[0, 0, 0]);
+    assert!(MONTHS.contains(&&buf[8..11]));
+    assert_eq!(buf[11], b' ');
+    assert!(DIGITS.contains(&buf[12]));
+    assert!(DIGITS.contains(&buf[13]));
+    assert_eq!(buf[14], b' ');
+    assert!(DIGITS.contains(&buf[15]));
+    assert!(DIGITS.contains(&buf[16]));
+    assert!(DIGITS.contains(&buf[17]));
+    assert!(DIGITS.contains(&buf[18]));
+    assert_eq!(&buf[19..22], &[0, 0, 0]);
+    // Version.
+    assert_eq!(&buf[22..42], b"1.2.3-alpha1\0\0\0\0\0\0\0\0");
     // Firmware size.
     assert_eq!(buf[42..46], [4, 0, 0, 0]);
     // Public key 1.

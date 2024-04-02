@@ -73,8 +73,7 @@ impl Header {
 
     /// Public key of the first signer.
     ///
-    /// Returns `None` if the first signer is not present. In this case,
-    /// [`signature1`] will be zeroed out.
+    /// Returns `None` if the pubkey is not present (zeroed out).
     pub fn pubkey1(&self) -> Option<secp256k1::PublicKey> {
         if self.pubkey1 == [0; 33] {
             return None;
@@ -83,14 +82,18 @@ impl Header {
     }
 
     /// First signature.
-    pub fn signature1(&self) -> secp256k1::ecdsa::Signature {
-        secp256k1::ecdsa::Signature::from_compact(&self.signature1).expect("validated")
+    ///
+    /// Returns `None` if the signature is not present (zeroed out).
+    pub fn signature1(&self) -> Option<secp256k1::ecdsa::Signature> {
+        if self.signature1 == [0; 64] {
+            return None;
+        }
+        Some(secp256k1::ecdsa::Signature::from_compact(&self.signature1).expect("validated"))
     }
 
     /// Public key of the second signer.
     ///
-    /// Returns `None` if the second signer is not present. In this case,
-    /// [`signature2`] will be zeroed out.
+    /// Returns `None` if the pubkey is not present (zeroed out).
     pub fn pubkey2(&self) -> Option<secp256k1::PublicKey> {
         if self.pubkey2 == [0; 33] {
             return None;
@@ -99,8 +102,13 @@ impl Header {
     }
 
     /// Second signature.
-    pub fn signature2(&self) -> secp256k1::ecdsa::Signature {
-        secp256k1::ecdsa::Signature::from_compact(&self.signature2).expect("validated")
+    ///
+    /// Returns `None` if the signature is not present (zeroed out).
+    pub fn signature2(&self) -> Option<secp256k1::ecdsa::Signature> {
+        if self.signature2 == [0; 64] {
+            return None;
+        }
+        Some(secp256k1::ecdsa::Signature::from_compact(&self.signature2).expect("validated"))
     }
 
     /// Create a new header and sign it.
@@ -108,7 +116,7 @@ impl Header {
         magic: Magic,
         version: semver::Version,
         firmware_size: u32,
-        signer: &Signer,
+        signer: Signer<'_>,
         data: impl Read,
     ) -> Result<Self, Error> {
         let time = chrono::Utc::now();
@@ -176,15 +184,14 @@ impl Header {
         }
 
         let timestamp = read(&mut r)?.ok_or(Error::HeaderTooShort)?;
-        let version = read(&mut r)?.ok_or(Error::HeaderTooShort)?;
         let date = read(&mut r)?.ok_or(Error::HeaderTooShort)?;
+        let version = read(&mut r)?.ok_or(Error::HeaderTooShort)?;
         let firmware_size = read(&mut r)?.ok_or(Error::HeaderTooShort)?;
         let pubkey1 = read(&mut r)?.ok_or(Error::HeaderTooShort)?;
         let signature1 = read(&mut r)?.ok_or(Error::HeaderTooShort)?;
         let pubkey2 = read(&mut r)?.ok_or(Error::HeaderTooShort)?;
         let signature2 = read(&mut r)?.ok_or(Error::HeaderTooShort)?;
 
-        dbg!(signature1, signature2);
         // When parsing an existing header, there should always be at least one
         // signature.
         if signature1 == [0; 64] && signature2 == [0; 64] {
@@ -214,16 +221,16 @@ impl Header {
 
     /// Serialize the header to a writer.
     pub fn serialize(&self, mut w: impl Write) -> Result<(), Error> {
-        w.write_all(&self.magic)?;
-        w.write_all(&self.timestamp)?;
-        w.write_all(&self.version)?;
-        w.write_all(&self.date)?;
-        w.write_all(&self.firmware_size)?;
-        w.write_all(&self.pubkey1)?;
-        w.write_all(&self.signature1)?;
-        w.write_all(&self.pubkey2)?;
-        w.write_all(&self.signature2)?;
-        w.write_all(&self.reserved)?;
+        w.write_all(&self.magic).map_err(Error::Serialize)?;
+        w.write_all(&self.timestamp).map_err(Error::Serialize)?;
+        w.write_all(&self.date).map_err(Error::Serialize)?;
+        w.write_all(&self.version).map_err(Error::Serialize)?;
+        w.write_all(&self.firmware_size).map_err(Error::Serialize)?;
+        w.write_all(&self.pubkey1).map_err(Error::Serialize)?;
+        w.write_all(&self.signature1).map_err(Error::Serialize)?;
+        w.write_all(&self.pubkey2).map_err(Error::Serialize)?;
+        w.write_all(&self.signature2).map_err(Error::Serialize)?;
+        w.write_all(&self.reserved).map_err(Error::Serialize)?;
         Ok(())
     }
 
@@ -239,6 +246,9 @@ impl Header {
             return Err(Error::Signature2Present);
         }
         let secp = secp256k1::Secp256k1::new();
+        if self.pubkey1 == key.public_key(&secp).serialize() {
+            return Err(Error::PubkeyAlreadyUsed);
+        }
         self.pubkey2 = key.public_key(&secp).serialize();
         self.signature2 = secp.sign_ecdsa(&self.hash, key).serialize_compact();
         Ok(())
@@ -256,15 +266,15 @@ impl Header {
         // First hash the header itself, excluding only the signatures and pubkeys.
         hasher.update(self.magic);
         hasher.update(self.timestamp);
-        hasher.update(self.version);
         hasher.update(self.date);
+        hasher.update(self.version);
         hasher.update(self.firmware_size);
         hasher.update(self.reserved);
         // Hash the firmware code.
         let mut num_bytes_read = 0u32;
         let mut buf = [0; 1024];
         loop {
-            let n = data.read(&mut buf)?;
+            let n = data.read(&mut buf).map_err(Error::Read)?;
             if n == 0 {
                 break;
             }
@@ -382,16 +392,16 @@ impl Header {
 }
 
 /// Who is signing the firmware.
-pub enum Signer {
+pub enum Signer<'a> {
     /// Trusted key from Foundation Devices, Inc.
     ///
     /// Headers signed by trusted keys expect both signatures to be filled in.
-    Trusted(secp256k1::SecretKey),
+    Trusted(&'a secp256k1::SecretKey),
     /// Third-party developer key.
     ///
     /// Headers signed by developer keys expect only the second signature to be
     /// filled in. The first signature is left empty (zeroed out).
-    Developer(secp256k1::SecretKey),
+    Developer(&'a secp256k1::SecretKey),
 }
 
 /// Magic number.
@@ -421,9 +431,9 @@ impl Magic {
 /// Read a fixed-size buffer from a reader.
 ///
 /// If there are not enough bytes to read, `None` is returned.
-fn read<const N: usize>(r: &mut impl Read) -> std::io::Result<Option<[u8; N]>> {
+fn read<const N: usize>(r: &mut impl Read) -> Result<Option<[u8; N]>, Error> {
     let mut buf = [0; N];
-    let n = r.read(&mut buf)?;
+    let n = r.read(&mut buf).map_err(Error::Read)?;
     if n != buf.len() {
         Ok(None)
     } else {
@@ -437,12 +447,11 @@ pub enum Error {
     HeaderTooShort,
     InvalidTimestamp,
     InvalidReservedBytes,
-    DuplicatePubkeys,
+    PubkeyAlreadyUsed,
     InvalidVersionUtf8,
     InvalidVersionTrailingBytes,
     VersionTooLong,
     InvalidVersionSemver,
-    InvalidPrivateKey,
     InvalidPubkey1,
     UnknownPubkey1,
     InvalidPubkey2,
@@ -455,19 +464,44 @@ pub enum Error {
     InvalidDateUtf8,
     InvalidDateTrailingBytes,
     InvalidFirmwareSize { in_header: u32, actual: u32 },
-    Io(std::io::Error),
-}
-
-impl From<std::io::Error> for Error {
-    fn from(e: std::io::Error) -> Self {
-        Self::Io(e)
-    }
+    Read(std::io::Error),
+    Serialize(std::io::Error),
 }
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // TODO Proper impl
-        write!(f, "{self:?}")
+        match self {
+            Self::HeaderWithNoSignature => write!(f, "header with no signature"),
+            Self::HeaderTooShort => write!(f, "header too short"),
+            Self::InvalidTimestamp => write!(f, "invalid timestamp in header"),
+            Self::InvalidReservedBytes => write!(f, "invalid reserved bytes in header"),
+            Self::PubkeyAlreadyUsed => write!(f, "attempting to sign with the same pubkey twice"),
+            Self::InvalidVersionUtf8 => write!(f, "invalid version UTF-8 in header"),
+            Self::InvalidVersionTrailingBytes => {
+                write!(f, "invalid version trailing bytes in header")
+            }
+            Self::VersionTooLong => write!(f, "version too long to write in header"),
+            Self::InvalidVersionSemver => write!(f, "invalid version SemVer"),
+            Self::InvalidPubkey1 => write!(f, "invalid pubkey1 in header"),
+            Self::UnknownPubkey1 => write!(f, "unknown pubkey1 in header"),
+            Self::InvalidPubkey2 => write!(f, "invalid pubkey2 in header"),
+            Self::UnknownPubkey2 => write!(f, "unknown pubkey2 in header"),
+            Self::InvalidSignature1 => write!(f, "invalid signature1 in header"),
+            Self::InvalidSignature2 => write!(f, "invalid signature2 in header"),
+            Self::Signature1Missing => write!(f, "signature1 missing in header"),
+            Self::Signature2Present => {
+                write!(f, "signature2 already present in header")
+            }
+            Self::FirmwareTooLong => write!(f, "firmware too long"),
+            Self::InvalidDateUtf8 => write!(f, "invalid date UTF-8 in header"),
+            Self::InvalidDateTrailingBytes => write!(f, "invalid date trailing bytes in header"),
+            Self::InvalidFirmwareSize { in_header, actual } => write!(
+                f,
+                "invalid firmware size in header: should be {actual}, but is {in_header}",
+            ),
+            Self::Read(e) => write!(f, "error while reading input: {e}"),
+            Self::Serialize(e) => write!(f, "serialize error: {e}"),
+        }
     }
 }
 
