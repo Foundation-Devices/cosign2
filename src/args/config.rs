@@ -1,15 +1,45 @@
-// TODO I think the only two things here would be the public key and the path to
-// the PEM file
-// And that path should probably be absolute
-// TODO Also valid_signers
-// TODO And the target
+use std::path::{Path, PathBuf};
 
-use std::path::Path;
-
-pub struct Config;
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Config {
+    pub pubkey: String,
+    pub secret: PathBuf,
+    pub known_pubkeys: Vec<String>,
+    pub target: String,
+}
 
 impl Config {
-    pub fn load(_path: &Path) -> Self {
-        todo!()
+    pub fn load(path: &Path) -> Result<Self, Error> {
+        let config = std::fs::read_to_string(path)?;
+        toml::from_str(&config).map_err(Into::into)
     }
 }
+
+#[derive(Debug)]
+pub enum Error {
+    Io(std::io::Error),
+    Toml(toml::de::Error),
+}
+
+impl From<std::io::Error> for Error {
+    fn from(e: std::io::Error) -> Self {
+        Error::Io(e)
+    }
+}
+
+impl From<toml::de::Error> for Error {
+    fn from(e: toml::de::Error) -> Self {
+        Error::Toml(e)
+    }
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Error::Io(e) => write!(f, "failed to read config file: {e}"),
+            Error::Toml(e) => write!(f, "config file format error in TOML: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for Error {}

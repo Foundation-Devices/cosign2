@@ -1,7 +1,13 @@
 // TODO After writing the output file, do another parse() as a sanity check. If
 // it fails print an error asking if other processes are writing to the file.
 
-use {colored::Colorize, std::io::Seek};
+use {
+    colored::Colorize,
+    std::{
+        io::Seek,
+        path::{Path, PathBuf},
+    },
+};
 
 mod args;
 
@@ -39,7 +45,7 @@ fn run() -> Result<(), Error> {
                         header.firmware_size()
                     );
                     println!(
-                        "{:10} 0x{}",
+                        "{:10} {}",
                         "pubkey1".bold(),
                         match header.pubkey1() {
                             Some(pubkey) => pubkey.to_string(),
@@ -51,13 +57,13 @@ fn run() -> Result<(), Error> {
                         None => [0; 64],
                     };
                     println!(
-                        "{:10} 0x{}",
+                        "{:10} {}",
                         "signature1".bold(),
                         hex::encode(&signature1[..32])
                     );
-                    println!("{} {}", " ".repeat(12), hex::encode(&signature1[32..]));
+                    println!("{} {}", " ".repeat(10), hex::encode(&signature1[32..]));
                     println!(
-                        "{:10} 0x{}",
+                        "{:10} {}",
                         "pubkey2".bold(),
                         match header.pubkey2() {
                             Some(pubkey) => pubkey.to_string(),
@@ -69,11 +75,11 @@ fn run() -> Result<(), Error> {
                         None => [0; 64],
                     };
                     println!(
-                        "{:10} 0x{}",
+                        "{:10} {}",
                         "signature2".bold(),
                         hex::encode(&signature2[..32])
                     );
-                    println!("{} {}", " ".repeat(12), hex::encode(&signature2[32..]));
+                    println!("{} {}", " ".repeat(10), hex::encode(&signature2[32..]));
                 }
                 None => println!("no header found"),
             }
@@ -81,7 +87,7 @@ fn run() -> Result<(), Error> {
         args::Args::Sign {
             pubkey: expected_pubkey,
             secret,
-            input,
+            input: input_path,
             output,
             version,
             target,
@@ -102,12 +108,25 @@ fn run() -> Result<(), Error> {
             let magic = match target {
                 args::Target::Atsama5d27KeyOs => cosign2::Magic::Atsama5d27KeyOs,
             };
-            let mut input = std::fs::File::open(input).map_err(Error::OpenInputFile)?;
-            let mut output = match output {
-                args::Output::InPlace => todo!(),
-                args::Output::File(path) => {
-                    std::fs::File::create(path).map_err(Error::OpenOutputFile)?
-                }
+            let mut input_options = std::fs::OpenOptions::new();
+            input_options.read(true);
+            if let args::Output::InPlace = output {
+                // When working in-place, the input file will be written to.
+                input_options.write(true);
+            }
+            let mut input = input_options
+                .open(&input_path)
+                .map_err(Error::OpenInputFile)?;
+            let output = match output {
+                args::Output::InPlace => OutputFile::InPlace(
+                    // When working in-place, first write to a temporary file. The temporary
+                    // file will be moved to the input file at the end of the process.
+                    tempfile::NamedTempFile::new().map_err(Error::CreateTempFile)?,
+                ),
+                args::Output::File(path) => OutputFile::File(
+                    std::fs::File::create(&path).map_err(Error::OpenOutputFile)?,
+                    path.to_owned(),
+                ),
             };
 
             let header = match cosign2::Header::parse(&input, &known_pubkeys)? {
@@ -141,14 +160,48 @@ fn run() -> Result<(), Error> {
             };
 
             // Write the signed header and firmware to output file.
-            header.serialize(&output)?;
+            header.serialize(output.file())?;
             input
                 .seek(std::io::SeekFrom::Start(0))
                 .map_err(Error::SeekInputFile)?;
-            std::io::copy(&mut input, &mut output).map_err(Error::CopyFirmware)?;
+            std::io::copy(&mut input, &mut output.file()).map_err(Error::CopyFirmware)?;
+
+            // When working in-place, the output is actually first written to a temporary
+            // file. To achieve the effect of in-place editing, the temporary
+            // file must be moved to the input file, replacing it.
+            if output.is_in_place() {
+                move_file(output.file(), output.path(), &input, &input_path)
+                    .map_err(Error::MoveTempFile)?;
+            }
         }
     }
     Ok(())
+}
+
+#[derive(Debug)]
+enum OutputFile {
+    InPlace(tempfile::NamedTempFile),
+    File(std::fs::File, PathBuf),
+}
+
+impl OutputFile {
+    fn file(&self) -> &std::fs::File {
+        match self {
+            OutputFile::InPlace(file) => file.as_file(),
+            OutputFile::File(file, _) => file,
+        }
+    }
+
+    fn path(&self) -> &Path {
+        match self {
+            OutputFile::InPlace(file) => file.path(),
+            OutputFile::File(_, path) => path,
+        }
+    }
+
+    fn is_in_place(&self) -> bool {
+        matches!(self, OutputFile::InPlace(_))
+    }
 }
 
 #[derive(Debug)]
@@ -162,6 +215,20 @@ enum Error {
     OpenOutputFile(std::io::Error),
     InputFileMetadata(std::io::Error),
     CopyFirmware(std::io::Error),
+    MoveTempFile(std::io::Error),
+    CreateTempFile(std::io::Error),
+}
+
+impl From<args::Error> for Error {
+    fn from(e: args::Error) -> Self {
+        Error::Args(e)
+    }
+}
+
+impl From<cosign2::Error> for Error {
+    fn from(e: cosign2::Error) -> Self {
+        Error::Cosign2(e)
+    }
 }
 
 impl std::fmt::Display for Error {
@@ -178,20 +245,27 @@ impl std::fmt::Display for Error {
             Error::CopyFirmware(e) => {
                 write!(f, "failed to copy firmware from input to output file: {e}")
             }
+            Error::MoveTempFile(e) => write!(f, "failed to move temporary file to output: {e}"),
+            Error::CreateTempFile(e) => write!(f, "failed to create temporary file: {e}"),
         }
     }
 }
 
 impl std::error::Error for Error {}
 
-impl From<args::Error> for Error {
-    fn from(e: args::Error) -> Self {
-        Error::Args(e)
+fn move_file(
+    mut from_file: &std::fs::File,
+    from_path: &Path,
+    mut to_file: &std::fs::File,
+    to_path: &Path,
+) -> std::io::Result<()> {
+    if std::fs::rename(from_path, to_path).is_err() {
+        // If rename fails, the files might be on different filesystems.
+        // Fall back to copying and removing the original file.
+        from_file.seek(std::io::SeekFrom::Start(0))?;
+        to_file.seek(std::io::SeekFrom::Start(0))?;
+        std::io::copy(&mut from_file, &mut to_file)?;
+        std::fs::remove_file(from_path)?;
     }
-}
-
-impl From<cosign2::Error> for Error {
-    fn from(e: cosign2::Error) -> Self {
-        Error::Cosign2(e)
-    }
+    Ok(())
 }
