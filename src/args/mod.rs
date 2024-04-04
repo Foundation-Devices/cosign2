@@ -170,25 +170,25 @@ pub fn args() -> Result<Args, Error> {
 #[derive(Debug)]
 pub enum Error {
     Config(ConfigError),
-    ReadPemFile(std::io::Error),
-    ParsePemFile(pem::PemError),
-    ParseDerContent(sec1::der::Error),
-    InvalidPemTag(String),
-    InvalidPubkey(secp256k1::Error),
-    InvalidPubkeyInConfig(secp256k1::Error),
-    InvalidSecretKey(secp256k1::Error),
-    InvalidPubkeyHex,
-    InvalidPubkeyHexInConfig,
     InPlaceAndOutputSpecified,
-    InvalidTarget,
-    TargetMissing,
-    InvalidTargetInConfig,
     InvalidKnownPubkey(String),
     InvalidKnownPubkeyHex(String),
-    InvalidKnownPubkeyInConfig(String),
     InvalidKnownPubkeyHexInConfig(String),
+    InvalidKnownPubkeyInConfig(String),
+    InvalidPemTag(String),
+    InvalidPubkey(secp256k1::Error),
+    InvalidPubkeyHex,
+    InvalidPubkeyHexInConfig,
+    InvalidPubkeyInConfig(secp256k1::Error),
+    InvalidSecretKey(secp256k1::Error),
+    InvalidTarget,
+    InvalidTargetInConfig,
+    ParseDerContent(sec1::der::Error),
+    ParsePemFile(pem::PemError),
+    ReadPemFile(std::io::Error),
     SecretMissing,
     SecretPathNotAbsoluteInConfig(PathBuf),
+    TargetMissing,
 }
 
 impl From<pem::PemError> for Error {
@@ -207,33 +207,9 @@ impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Error::Config(e) => write!(f, "config error: {e}"),
-            Error::ReadPemFile(e) => write!(f, "failed to read PEM file: {e}"),
-            Error::ParsePemFile(e) => write!(f, "invalid PEM file: {e}"),
-            Error::InvalidPemTag(tag) => {
-                write!(f, r#"invalid PEM tag: "{tag}", expected "EC PRIVATE KEY""#)
-            }
-            Error::ParseDerContent(e) => {
-                write!(f, "failed to parse DER content inside PEM file: {e}")
-            }
-            Error::InvalidPubkey(e) => write!(f, "user specified invalid public key: {e}"),
-            Error::InvalidSecretKey(e) => write!(f, "user specified invalid secret key: {e}"),
-            Error::InvalidPubkeyInConfig(e) => {
-                write!(
-                    f,
-                    "config error: config file contains invalid public key: {e}"
-                )
-            }
-            Error::InvalidPubkeyHex => write!(f, "user specified invalid public key hex"),
-            Error::InvalidPubkeyHexInConfig => {
-                write!(
-                    f,
-                    "config error: config file contains invalid public key hex"
-                )
-            }
             Error::InPlaceAndOutputSpecified => {
                 write!(f, "cannot specify both --in-place and --output (-o)")
             }
-            Error::InvalidTarget => write!(f, "user specified invalid target"),
             Error::InvalidKnownPubkey(pubkey) => {
                 write!(f, r#"user specified invalid known public key: "{pubkey}""#)
             }
@@ -244,12 +220,10 @@ impl std::fmt::Display for Error {
                     pubkey
                 )
             }
-            Error::SecretMissing => write!(f, "user did not specify a secret key"),
-            Error::SecretPathNotAbsoluteInConfig(path) => {
+            Error::InvalidKnownPubkeyHexInConfig(pubkey) => {
                 write!(
                     f,
-                    r#"config error: secret key path is not absolute: "{}""#,
-                    path.to_str().unwrap_or("<invalid path>")
+                    r#"config error: config file contains invalid known public key hex: "{pubkey}""#
                 )
             }
             Error::InvalidKnownPubkeyInConfig(pubkey) => {
@@ -258,16 +232,42 @@ impl std::fmt::Display for Error {
                     r#"config error: config file contains invalid known public key: "{pubkey}""#
                 )
             }
-            Error::InvalidKnownPubkeyHexInConfig(pubkey) => {
+            Error::InvalidPemTag(tag) => {
+                write!(f, r#"invalid PEM tag: "{tag}", expected "EC PRIVATE KEY""#)
+            }
+            Error::InvalidPubkey(e) => write!(f, "user specified invalid public key: {e}"),
+            Error::InvalidPubkeyHex => write!(f, "user specified invalid public key hex"),
+            Error::InvalidPubkeyHexInConfig => {
                 write!(
                     f,
-                    r#"config error: config file contains invalid known public key hex: "{pubkey}""#
+                    "config error: config file contains invalid public key hex"
                 )
             }
-            Error::TargetMissing => write!(f, "user did not specify a target"),
+            Error::InvalidPubkeyInConfig(e) => {
+                write!(
+                    f,
+                    "config error: config file contains invalid public key: {e}"
+                )
+            }
+            Error::InvalidSecretKey(e) => write!(f, "user specified invalid secret key: {e}"),
+            Error::InvalidTarget => write!(f, "user specified invalid target"),
             Error::InvalidTargetInConfig => {
                 write!(f, "config error: config file contains invalid target")
             }
+            Error::ParseDerContent(e) => {
+                write!(f, "failed to parse DER content inside PEM file: {e}")
+            }
+            Error::ParsePemFile(e) => write!(f, "invalid PEM file: {e}"),
+            Error::ReadPemFile(e) => write!(f, "failed to read PEM file: {e}"),
+            Error::SecretMissing => write!(f, "user did not specify a secret key"),
+            Error::SecretPathNotAbsoluteInConfig(path) => {
+                write!(
+                    f,
+                    r#"config error: secret key path is not absolute: "{}""#,
+                    path.to_str().unwrap_or("<invalid path>")
+                )
+            }
+            Error::TargetMissing => write!(f, "user did not specify a target"),
         }
     }
 }

@@ -207,16 +207,16 @@ impl OutputFile {
 #[derive(Debug)]
 enum Error {
     Args(args::Error),
-    Cosign2(cosign2::Error),
-    KeyMismatch,
-    UnknownSigner,
-    OpenInputFile(std::io::Error),
-    SeekInputFile(std::io::Error),
-    OpenOutputFile(std::io::Error),
-    InputFileMetadata(std::io::Error),
     CopyFirmware(std::io::Error),
-    MoveTempFile(std::io::Error),
+    Cosign2(cosign2::Error),
     CreateTempFile(std::io::Error),
+    InputFileMetadata(std::io::Error),
+    KeyMismatch,
+    MoveTempFile(std::io::Error),
+    OpenInputFile(std::io::Error),
+    OpenOutputFile(std::io::Error),
+    SeekInputFile(std::io::Error),
+    UnknownSigner,
 }
 
 impl From<args::Error> for Error {
@@ -235,18 +235,18 @@ impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             Error::Args(e) => write!(f, "{e}"),
-            Error::Cosign2(e) => write!(f, "{e}"),
-            Error::KeyMismatch => write!(f, "public key does not match secret key"),
-            Error::UnknownSigner => write!(f, "signing key is not in known pubkeys list"),
-            Error::OpenInputFile(e) => write!(f, "failed to open input file: {e}"),
-            Error::OpenOutputFile(e) => write!(f, "failed to open output file: {e}"),
-            Error::InputFileMetadata(e) => write!(f, "failed to get input file metadata: {e}"),
-            Error::SeekInputFile(e) => write!(f, "failed to seek input file: {e}"),
             Error::CopyFirmware(e) => {
                 write!(f, "failed to copy firmware from input to output file: {e}")
             }
-            Error::MoveTempFile(e) => write!(f, "failed to move temporary file to output: {e}"),
+            Error::Cosign2(e) => write!(f, "{e}"),
             Error::CreateTempFile(e) => write!(f, "failed to create temporary file: {e}"),
+            Error::InputFileMetadata(e) => write!(f, "failed to get input file metadata: {e}"),
+            Error::KeyMismatch => write!(f, "public key does not match secret key"),
+            Error::MoveTempFile(e) => write!(f, "failed to move temporary file to output: {e}"),
+            Error::OpenInputFile(e) => write!(f, "failed to open input file: {e}"),
+            Error::OpenOutputFile(e) => write!(f, "failed to open output file: {e}"),
+            Error::SeekInputFile(e) => write!(f, "failed to seek input file: {e}"),
+            Error::UnknownSigner => write!(f, "signing key is not in known pubkeys list"),
         }
     }
 }

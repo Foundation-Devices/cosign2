@@ -443,64 +443,64 @@ fn read<const N: usize>(r: &mut impl Read) -> Result<Option<[u8; N]>, Error> {
 
 #[derive(Debug)]
 pub enum Error {
-    HeaderWithNoSignature,
+    FirmwareTooLong,
     HeaderTooShort,
-    InvalidTimestamp,
-    InvalidReservedBytes,
-    PubkeyAlreadyUsed,
-    InvalidVersionUtf8,
-    InvalidVersionTrailingBytes,
-    VersionTooLong,
-    InvalidVersionSemver,
+    HeaderWithNoSignature,
+    InvalidDateTrailingBytes,
+    InvalidDateUtf8,
+    InvalidFirmwareSize { in_header: u32, actual: u32 },
     InvalidPubkey1,
-    UnknownPubkey1,
     InvalidPubkey2,
-    UnknownPubkey2,
+    InvalidReservedBytes,
     InvalidSignature1,
     InvalidSignature2,
-    Signature1Missing,
-    Signature2Present,
-    FirmwareTooLong,
-    InvalidDateUtf8,
-    InvalidDateTrailingBytes,
-    InvalidFirmwareSize { in_header: u32, actual: u32 },
+    InvalidTimestamp,
+    InvalidVersionSemver,
+    InvalidVersionTrailingBytes,
+    InvalidVersionUtf8,
+    PubkeyAlreadyUsed,
     Read(std::io::Error),
     Serialize(std::io::Error),
+    Signature1Missing,
+    Signature2Present,
+    UnknownPubkey1,
+    UnknownPubkey2,
+    VersionTooLong,
 }
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::HeaderWithNoSignature => write!(f, "header with no signature"),
-            Self::HeaderTooShort => write!(f, "header too short"),
-            Self::InvalidTimestamp => write!(f, "invalid timestamp in header"),
-            Self::InvalidReservedBytes => write!(f, "invalid reserved bytes in header"),
-            Self::PubkeyAlreadyUsed => write!(f, "attempting to sign with the same pubkey twice"),
-            Self::InvalidVersionUtf8 => write!(f, "invalid version UTF-8 in header"),
-            Self::InvalidVersionTrailingBytes => {
-                write!(f, "invalid version trailing bytes in header")
-            }
-            Self::VersionTooLong => write!(f, "version too long to write in header"),
-            Self::InvalidVersionSemver => write!(f, "invalid version SemVer"),
-            Self::InvalidPubkey1 => write!(f, "invalid pubkey1 in header"),
-            Self::UnknownPubkey1 => write!(f, "unknown pubkey1 in header"),
-            Self::InvalidPubkey2 => write!(f, "invalid pubkey2 in header"),
-            Self::UnknownPubkey2 => write!(f, "unknown pubkey2 in header"),
-            Self::InvalidSignature1 => write!(f, "invalid signature1 in header"),
-            Self::InvalidSignature2 => write!(f, "invalid signature2 in header"),
-            Self::Signature1Missing => write!(f, "signature1 missing in header"),
-            Self::Signature2Present => {
-                write!(f, "signature2 already present in header")
-            }
             Self::FirmwareTooLong => write!(f, "firmware too long"),
-            Self::InvalidDateUtf8 => write!(f, "invalid date UTF-8 in header"),
+            Self::HeaderTooShort => write!(f, "header too short"),
+            Self::HeaderWithNoSignature => write!(f, "header with no signature"),
             Self::InvalidDateTrailingBytes => write!(f, "invalid date trailing bytes in header"),
+            Self::InvalidDateUtf8 => write!(f, "invalid date UTF-8 in header"),
             Self::InvalidFirmwareSize { in_header, actual } => write!(
                 f,
                 "invalid firmware size in header: should be {actual}, but is {in_header}",
             ),
+            Self::InvalidPubkey1 => write!(f, "invalid pubkey1 in header"),
+            Self::InvalidPubkey2 => write!(f, "invalid pubkey2 in header"),
+            Self::InvalidReservedBytes => write!(f, "invalid reserved bytes in header"),
+            Self::InvalidSignature1 => write!(f, "invalid signature1 in header"),
+            Self::InvalidSignature2 => write!(f, "invalid signature2 in header"),
+            Self::InvalidTimestamp => write!(f, "invalid timestamp in header"),
+            Self::InvalidVersionSemver => write!(f, "invalid version SemVer"),
+            Self::InvalidVersionTrailingBytes => {
+                write!(f, "invalid version trailing bytes in header")
+            }
+            Self::InvalidVersionUtf8 => write!(f, "invalid version UTF-8 in header"),
+            Self::PubkeyAlreadyUsed => write!(f, "attempting to sign with the same pubkey twice"),
             Self::Read(e) => write!(f, "error while reading input: {e}"),
             Self::Serialize(e) => write!(f, "serialize error: {e}"),
+            Self::Signature1Missing => write!(f, "signature1 missing in header"),
+            Self::Signature2Present => {
+                write!(f, "signature2 already present in header")
+            }
+            Self::UnknownPubkey1 => write!(f, "unknown pubkey1 in header"),
+            Self::UnknownPubkey2 => write!(f, "unknown pubkey2 in header"),
+            Self::VersionTooLong => write!(f, "version too long to write in header"),
         }
     }
 }
