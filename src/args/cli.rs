@@ -46,7 +46,7 @@ pub enum Command {
         /// Target device. Valid values are "atsama5d27-keyos".
         #[clap(long)]
         target: Option<String>,
-        /// Known public keys to accept signatures from.
+        /// Known public keys to accept signatures from, separated by commas.
         #[clap(long)]
         known_pubkeys: Option<Vec<String>>,
     },
