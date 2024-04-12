@@ -52,7 +52,7 @@ where
             firmware_version,
             developer,
             target,
-            known_pubkeys,
+            known_pubkey: known_pubkeys,
         } => {
             // Load and validate the config.
             let config = config.map(|c| config::Config::load(&c)).transpose()?;

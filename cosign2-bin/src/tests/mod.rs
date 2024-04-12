@@ -1,4 +1,8 @@
-use {crate::ExitCode, std::io::Write};
+use {
+    crate::ExitCode,
+    sha2::Digest,
+    std::io::{Read, Write},
+};
 
 mod fixtures;
 
@@ -100,7 +104,6 @@ fn dump_valid_header_two_signatures() {
     assert!(output.stderr.is_empty());
 }
 
-// TODO Check the same thing when signing
 /// Dump header with the magic value changed. This is interpreted as a file with
 /// no header, since the magic value is used to identify the header.
 #[test]
@@ -112,7 +115,6 @@ fn dump_invalid_magic() {
     assert!(output.stderr.is_empty());
 }
 
-// TODO Check the same thing when signing
 /// Dump headers with various fields changed, hence invalidating the signatures.
 #[test]
 fn dump_invalid_changed_fields() {
@@ -134,7 +136,6 @@ fn dump_invalid_changed_fields() {
     }
 }
 
-// TODO Check the same thing when signing
 /// Dump header with the first pubkey changed.
 #[test]
 fn dump_invalid_header_invalid_pubkey1() {
@@ -145,7 +146,6 @@ fn dump_invalid_header_invalid_pubkey1() {
     assert!(output.stderr.contains("invalid pubkey1"));
 }
 
-// TODO Check the same thing when signing
 /// Dump header with the second pubkey changed.
 #[test]
 fn dump_invalid_header_invalid_pubkey2() {
@@ -156,7 +156,6 @@ fn dump_invalid_header_invalid_pubkey2() {
     assert!(output.stderr.contains("invalid pubkey2"));
 }
 
-// TODO Check the same thing when signing
 /// Dump header with the first signature changed.
 #[test]
 fn dump_invalid_header_invalid_signature1() {
@@ -167,7 +166,6 @@ fn dump_invalid_header_invalid_signature1() {
     assert!(output.stderr.contains("invalid signature1"));
 }
 
-// TODO Check the same thing when signing
 /// Dump header with the second signature changed.
 #[test]
 fn dump_invalid_header_invalid_signature2() {
@@ -251,6 +249,59 @@ fn sign_with_trusted_keys() {
     assert!(output.stderr.is_empty());
 }
 
+/// Sign an image with a trusted key loaded from config.
+#[test]
+fn sign_with_trusted_key_from_config() {
+    let input_file = create_file(fixtures::VALID_HEADER_ONE_SIGNATURE);
+    let output_file = tempfile::NamedTempFile::new().unwrap();
+    let private_key_pem = create_file(fixtures::PRIVATE_KEY_2_PEM);
+    let config_file = create_file(
+        format!(
+            r#"
+            pubkey = "{}"
+            secret = "{}"
+            known_pubkeys = ["{}", "{}"]
+            target = "atsama5d27-keyos"
+            "#,
+            fixtures::PUBLIC_KEY_2_HEX,
+            private_key_pem.path().to_str().unwrap(),
+            fixtures::PUBLIC_KEY_1_HEX,
+            fixtures::PUBLIC_KEY_2_HEX,
+        )
+        .as_bytes(),
+    );
+
+    let output = test([
+        "sign",
+        "-i",
+        input_file.path().to_str().unwrap(),
+        "--config",
+        config_file.path().to_str().unwrap(),
+        "-o",
+        output_file.path().to_str().unwrap(),
+    ]);
+
+    assert_eq!(output.exit_code, ExitCode(0));
+    assert!(output.stdout.is_empty());
+    assert!(output.stderr.is_empty());
+
+    let output = test(["dump", "-i", output_file.path().to_str().unwrap()]);
+
+    assert_eq!(output.exit_code, ExitCode(0));
+    assert!(output.stdout.contains("atsama5d27-keyos"));
+    assert!(output.stdout.contains("0.0.77"));
+    assert!(output.stdout.contains("18 B (18)"));
+    assert!(output.stdout.contains(fixtures::PUBLIC_KEY_1_HEX));
+    assert!(output.stdout.contains(fixtures::PUBLIC_KEY_2_HEX));
+    assert!(!output
+        .stdout
+        .contains("000000000000000000000000000000000000000000000000000000000000000000"));
+    assert!(!output
+        .stdout
+        .contains("0000000000000000000000000000000000000000000000000000000000000000"));
+    assert!(output.stderr.is_empty());
+}
+
 /// Sign an image with a single developer key.
 #[test]
 fn sign_with_developer_key() {
@@ -289,6 +340,361 @@ fn sign_with_developer_key() {
     assert!(output.stderr.is_empty());
 }
 
+/// Sign an image in place with a single developer key.
+#[test]
+fn sign_with_developer_key_in_place() {
+    let input_file = create_file(fixtures::UNSIGNED);
+    let private_key_pem = create_file(fixtures::PRIVATE_KEY_1_PEM);
+    let output = test([
+        "sign",
+        "--developer",
+        "--secret",
+        private_key_pem.path().to_str().unwrap(),
+        "-i",
+        input_file.path().to_str().unwrap(),
+        "--firmware-version",
+        "1.2.4-alpha1",
+        "--target",
+        "atsama5d27-keyos",
+        "--in-place",
+    ]);
+
+    assert_eq!(output.exit_code, ExitCode(0));
+    assert!(output.stdout.is_empty());
+    assert!(output.stderr.is_empty());
+
+    let output = test(["dump", "-i", input_file.path().to_str().unwrap()]);
+
+    assert_eq!(output.exit_code, ExitCode(0));
+    assert!(output.stdout.contains("atsama5d27-keyos"));
+    assert!(output.stdout.contains("1.2.4-alpha1"));
+    assert!(output.stdout.contains("18 B (18)"));
+    assert!(output.stdout.contains(fixtures::PUBLIC_KEY_1_HEX));
+    assert!(output
+        .stdout
+        .contains("000000000000000000000000000000000000000000000000000000000000000000"));
+    assert!(output.stderr.is_empty());
+}
+
+/// Attempt to sign an image in place while also specifying an output file.
+#[test]
+fn sign_with_developer_key_in_place_with_output_file() {
+    let input_file = create_file(fixtures::UNSIGNED);
+    let output_file = tempfile::NamedTempFile::new().unwrap();
+    let private_key_pem = create_file(fixtures::PRIVATE_KEY_1_PEM);
+    let output = test([
+        "sign",
+        "--developer",
+        "--secret",
+        private_key_pem.path().to_str().unwrap(),
+        "-i",
+        input_file.path().to_str().unwrap(),
+        "--firmware-version",
+        "1.2.4-alpha1",
+        "--target",
+        "atsama5d27-keyos",
+        "--in-place",
+        "-o",
+        output_file.path().to_str().unwrap(),
+    ]);
+
+    assert_eq!(output.exit_code, ExitCode(1));
+    assert!(output.stdout.is_empty());
+    assert!(output
+        .stderr
+        .contains("cannot specify both --in-place and --output (-o)"));
+    let mut buf = Vec::new();
+    output_file.as_file().read_to_end(&mut buf).unwrap();
+    assert!(buf.is_empty());
+}
+
+/// Attempt to resign an image which has already been signed with a developer
+/// key.
+#[test]
+fn resign_with_developer_key() {
+    let input_file = create_file(fixtures::DEVELOPER_SIGNED);
+    let output_file = tempfile::NamedTempFile::new().unwrap();
+    let private_key_pem = create_file(fixtures::PRIVATE_KEY_2_PEM);
+    let output = test([
+        "sign",
+        "--developer",
+        "--secret",
+        private_key_pem.path().to_str().unwrap(),
+        "-i",
+        input_file.path().to_str().unwrap(),
+        "--target",
+        "atsama5d27-keyos",
+        "-o",
+        output_file.path().to_str().unwrap(),
+    ]);
+
+    assert_eq!(output.exit_code, ExitCode(1));
+    assert!(output.stdout.is_empty());
+    assert!(output.stderr.contains("signature2 already present"));
+    let mut buf = Vec::new();
+    output_file.as_file().read_to_end(&mut buf).unwrap();
+    assert!(buf.is_empty());
+}
+
+/// Attempt to resign an image which has already been signed with the given
+/// trusted key.
+#[test]
+fn resign_with_trusted_key() {
+    let input_file = create_file(fixtures::VALID_HEADER_ONE_SIGNATURE);
+    let output_file = tempfile::NamedTempFile::new().unwrap();
+    let private_key_pem = create_file(fixtures::PRIVATE_KEY_1_PEM);
+    let output = test([
+        "sign",
+        "--secret",
+        private_key_pem.path().to_str().unwrap(),
+        "-i",
+        input_file.path().to_str().unwrap(),
+        "--target",
+        "atsama5d27-keyos",
+        "-o",
+        output_file.path().to_str().unwrap(),
+    ]);
+
+    assert_eq!(output.exit_code, ExitCode(1));
+    assert!(output.stdout.is_empty());
+    assert!(output.stderr.contains("same pubkey twice"));
+    let mut buf = Vec::new();
+    output_file.as_file().read_to_end(&mut buf).unwrap();
+    assert!(buf.is_empty());
+}
+
+/// Attempt to sign an image which has already been signed by an unknown key.
+#[test]
+fn sign_header_contains_unknown_pubkey() {
+    let input_file = create_file(fixtures::VALID_HEADER_ONE_SIGNATURE);
+    let output_file = tempfile::NamedTempFile::new().unwrap();
+    let private_key_pem = create_file(fixtures::PRIVATE_KEY_2_PEM);
+    let output = test([
+        "sign",
+        "--secret",
+        private_key_pem.path().to_str().unwrap(),
+        "-i",
+        input_file.path().to_str().unwrap(),
+        "--target",
+        "atsama5d27-keyos",
+        "-o",
+        output_file.path().to_str().unwrap(),
+        "--known-pubkey",
+        fixtures::PUBLIC_KEY_2_HEX,
+    ]);
+
+    assert_eq!(output.exit_code, ExitCode(1));
+    assert!(output.stdout.is_empty());
+    assert!(output.stderr.contains("unknown pubkey1"));
+    let mut buf = Vec::new();
+    output_file.as_file().read_to_end(&mut buf).unwrap();
+    assert!(buf.is_empty());
+}
+
+/// Attempt to sign an image using an unknown key.
+#[test]
+fn sign_header_with_unknown_pubkey() {
+    let input_file = create_file(fixtures::VALID_HEADER_ONE_SIGNATURE);
+    let output_file = tempfile::NamedTempFile::new().unwrap();
+    let private_key_pem = create_file(fixtures::PRIVATE_KEY_2_PEM);
+    let output = test([
+        "sign",
+        "--secret",
+        private_key_pem.path().to_str().unwrap(),
+        "-i",
+        input_file.path().to_str().unwrap(),
+        "--target",
+        "atsama5d27-keyos",
+        "-o",
+        output_file.path().to_str().unwrap(),
+        "--known-pubkey",
+        fixtures::PUBLIC_KEY_1_HEX,
+    ]);
+
+    assert_eq!(output.exit_code, ExitCode(1));
+    assert!(output.stdout.is_empty());
+    assert!(output
+        .stderr
+        .contains("signing key is not in known pubkeys list"));
+    let mut buf = Vec::new();
+    output_file.as_file().read_to_end(&mut buf).unwrap();
+    assert!(buf.is_empty());
+}
+
+/// Sign an image with a second key which has already been signed by a
+/// known key.
+#[test]
+fn sign_header_with_known_pubkeys() {
+    let input_file = create_file(fixtures::VALID_HEADER_ONE_SIGNATURE);
+    let output_file = tempfile::NamedTempFile::new().unwrap();
+    let private_key_pem = create_file(fixtures::PRIVATE_KEY_2_PEM);
+    let output = test([
+        "sign",
+        "--secret",
+        private_key_pem.path().to_str().unwrap(),
+        "-i",
+        input_file.path().to_str().unwrap(),
+        "--target",
+        "atsama5d27-keyos",
+        "-o",
+        output_file.path().to_str().unwrap(),
+        "--known-pubkey",
+        fixtures::PUBLIC_KEY_2_HEX,
+        "--known-pubkey",
+        fixtures::PUBLIC_KEY_1_HEX,
+    ]);
+
+    assert_eq!(output.exit_code, ExitCode(0));
+    assert!(output.stdout.is_empty());
+    assert!(output.stderr.is_empty());
+}
+
+/// Attempt to sign an image with an invalid version UTF-8 in the header.
+#[test]
+fn sign_header_invalid_version_utf8() {
+    let input_file = create_file(
+        &DataWithHeader {
+            magic: [0x78, 0x56, 0x34, 0x12],
+            timestamp: [1; 4],
+            date: [0; 14],
+            version: [0xFF; 20],
+            firmware_size: 13u32.to_le_bytes(),
+            data: b"Hello, world!".to_vec(),
+        }
+        .sign(
+            Some(secp256k1::SecretKey::from_slice(fixtures::SECRET_KEY_1_BYTES).unwrap()),
+            None,
+        ),
+    );
+    let output_file = tempfile::NamedTempFile::new().unwrap();
+    let private_key_pem = create_file(fixtures::PRIVATE_KEY_2_PEM);
+    let output = test([
+        "sign",
+        "--secret",
+        private_key_pem.path().to_str().unwrap(),
+        "-i",
+        input_file.path().to_str().unwrap(),
+        "--target",
+        "atsama5d27-keyos",
+        "-o",
+        output_file.path().to_str().unwrap(),
+    ]);
+
+    assert_eq!(output.exit_code, ExitCode(1));
+    assert!(output.stdout.is_empty());
+    assert!(output.stderr.contains("invalid version UTF-8"));
+}
+
+/// Attempt to sign an image with an invalid version SemVer in the header.
+#[test]
+fn sign_header_invalid_version_semver() {
+    let mut data = DataWithHeader {
+        magic: [0x78, 0x56, 0x34, 0x12],
+        timestamp: [1; 4],
+        date: [0; 14],
+        version: [0; 20],
+        firmware_size: 13u32.to_le_bytes(),
+        data: b"Hello, world!".to_vec(),
+    };
+    let version = b"invalid";
+    data.version[..version.len()].copy_from_slice(&version[..version.len()]);
+    let input_file = create_file(&data.sign(
+        Some(secp256k1::SecretKey::from_slice(fixtures::SECRET_KEY_1_BYTES).unwrap()),
+        None,
+    ));
+    let output_file = tempfile::NamedTempFile::new().unwrap();
+    let private_key_pem = create_file(fixtures::PRIVATE_KEY_2_PEM);
+    let output = test([
+        "sign",
+        "--secret",
+        private_key_pem.path().to_str().unwrap(),
+        "-i",
+        input_file.path().to_str().unwrap(),
+        "--target",
+        "atsama5d27-keyos",
+        "-o",
+        output_file.path().to_str().unwrap(),
+    ]);
+
+    assert_eq!(output.exit_code, ExitCode(1));
+    assert!(output.stdout.is_empty());
+    assert!(output.stderr.contains("invalid version SemVer"));
+}
+
+/// Attempt to sign an image with an invalid date UTF-8 in the header.
+#[test]
+fn sign_header_invalid_date_utf8() {
+    let mut data = DataWithHeader {
+        magic: [0x78, 0x56, 0x34, 0x12],
+        timestamp: [1; 4],
+        date: [0xFF; 14],
+        version: [0; 20],
+        firmware_size: 13u32.to_le_bytes(),
+        data: b"Hello, world!".to_vec(),
+    };
+    let version = b"1.0.0";
+    data.version[..version.len()].copy_from_slice(&version[..version.len()]);
+    let input_file = create_file(&data.sign(
+        Some(secp256k1::SecretKey::from_slice(fixtures::SECRET_KEY_1_BYTES).unwrap()),
+        None,
+    ));
+    let output_file = tempfile::NamedTempFile::new().unwrap();
+    let private_key_pem = create_file(fixtures::PRIVATE_KEY_2_PEM);
+    let output = test([
+        "sign",
+        "--secret",
+        private_key_pem.path().to_str().unwrap(),
+        "-i",
+        input_file.path().to_str().unwrap(),
+        "--target",
+        "atsama5d27-keyos",
+        "-o",
+        output_file.path().to_str().unwrap(),
+    ]);
+
+    assert_eq!(output.exit_code, ExitCode(1));
+    assert!(output.stdout.is_empty());
+    assert!(output.stderr.contains("invalid date UTF-8"));
+}
+
+/// Attempt to sign an image with an invalid firmware size.
+#[test]
+fn sign_header_invalid_firmware_size() {
+    let mut data = DataWithHeader {
+        magic: [0x78, 0x56, 0x34, 0x12],
+        timestamp: [1; 4],
+        date: [0; 14],
+        version: [0; 20],
+        firmware_size: 53u32.to_le_bytes(),
+        data: b"Hello, world!".to_vec(),
+    };
+    let version = b"1.0.0";
+    data.version[..version.len()].copy_from_slice(&version[..version.len()]);
+    let input_file = create_file(&data.sign(
+        Some(secp256k1::SecretKey::from_slice(fixtures::SECRET_KEY_2_BYTES).unwrap()),
+        None,
+    ));
+    let output_file = tempfile::NamedTempFile::new().unwrap();
+    let private_key_pem = create_file(fixtures::PRIVATE_KEY_1_PEM);
+    let output = test([
+        "sign",
+        "--secret",
+        private_key_pem.path().to_str().unwrap(),
+        "-i",
+        input_file.path().to_str().unwrap(),
+        "--target",
+        "atsama5d27-keyos",
+        "-o",
+        output_file.path().to_str().unwrap(),
+    ]);
+
+    assert_eq!(output.exit_code, ExitCode(1));
+    assert!(output.stdout.is_empty());
+    assert!(output.stderr.contains("invalid firmware size"));
+    assert!(output.stderr.contains("53"));
+    assert!(output.stderr.contains("13"));
+}
+
 fn test<const N: usize>(args: [&str; N]) -> Output {
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();
@@ -319,4 +725,62 @@ fn create_file(data: &[u8]) -> tempfile::NamedTempFile {
     let mut file = tempfile::NamedTempFile::new().unwrap();
     file.write_all(data).unwrap();
     file
+}
+
+struct DataWithHeader {
+    magic: [u8; 4],
+    timestamp: [u8; 4],
+    date: [u8; 14],
+    version: [u8; 20],
+    firmware_size: [u8; 4],
+    data: Vec<u8>,
+}
+
+impl DataWithHeader {
+    fn sign(
+        self,
+        secret1: Option<secp256k1::SecretKey>,
+        secret2: Option<secp256k1::SecretKey>,
+    ) -> Vec<u8> {
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&self.magic);
+        buf.extend_from_slice(&self.timestamp);
+        buf.extend_from_slice(&self.date);
+        buf.extend_from_slice(&self.version);
+        buf.extend_from_slice(&self.firmware_size);
+        let message = self.hash();
+        let secp = secp256k1::Secp256k1::new();
+        if let Some(pubkey1) = secret1 {
+            let signature1 = secp.sign_ecdsa(&message, &pubkey1);
+            buf.extend_from_slice(&pubkey1.public_key(&secp).serialize());
+            buf.extend_from_slice(&signature1.serialize_compact());
+        } else {
+            buf.extend_from_slice(&[0; 33]);
+            buf.extend_from_slice(&[0; 64]);
+        }
+        if let Some(pubkey2) = secret2 {
+            let signature2 = secp.sign_ecdsa(&message, &pubkey2);
+            buf.extend_from_slice(&pubkey2.public_key(&secp).serialize());
+            buf.extend_from_slice(&signature2.serialize_compact());
+        } else {
+            buf.extend_from_slice(&[0; 33]);
+            buf.extend_from_slice(&[0; 64]);
+        }
+        buf.extend_from_slice(&[0; cosign2::Header::RESERVED]);
+        buf.extend_from_slice(&self.data);
+        buf
+    }
+
+    fn hash(&self) -> secp256k1::Message {
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(self.magic);
+        hasher.update(self.timestamp);
+        hasher.update(self.date);
+        hasher.update(self.version);
+        hasher.update(self.firmware_size);
+        hasher.update([0; cosign2::Header::RESERVED]);
+        hasher.update(self.data.as_slice());
+        secp256k1::Message::from_digest_slice(&sha2::Sha256::digest(hasher.finalize()))
+            .expect("32 bytes")
+    }
 }

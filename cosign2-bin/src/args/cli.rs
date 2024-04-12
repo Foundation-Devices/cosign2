@@ -48,6 +48,6 @@ pub enum Command {
         target: Option<String>,
         /// Known public keys to accept signatures from, separated by commas.
         #[clap(long)]
-        known_pubkeys: Option<Vec<String>>,
+        known_pubkey: Option<Vec<String>>,
     },
 }

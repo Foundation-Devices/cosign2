@@ -223,6 +223,7 @@ dependencies = [
  "secp256k1",
  "semver",
  "serde",
+ "sha2",
  "tempfile",
  "toml",
 ]

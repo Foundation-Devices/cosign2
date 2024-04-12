@@ -25,7 +25,7 @@ impl Header {
     pub const SIZE: usize = 2048;
 
     /// Number of reserved bytes at the end of the header.
-    const RESERVED: usize = 1808;
+    pub const RESERVED: usize = 1808;
 
     /// Magic number.
     pub fn magic(&self) -> Magic {
@@ -251,11 +251,11 @@ impl Header {
     /// The first signature must be present, and the second signature must be
     /// missing, otherwise an error is returned.
     pub fn add_second_signature(&mut self, key: &secp256k1::SecretKey) -> Result<(), Error> {
-        if self.signature1 == [0; 64] {
-            return Err(Error::Signature1Missing);
-        }
         if self.signature2 != [0; 64] {
             return Err(Error::Signature2Present);
+        }
+        if self.signature1 == [0; 64] {
+            return Err(Error::Signature1Missing);
         }
         let mut secp = StackAllocatedSecp256k1::new();
         let secp = secp.create_for_signing()?;
@@ -526,7 +526,7 @@ impl core::fmt::Display for Error {
             Self::InvalidSignature1 => write!(f, "invalid signature1 in header"),
             Self::InvalidSignature2 => write!(f, "invalid signature2 in header"),
             Self::InvalidTimestamp => write!(f, "invalid timestamp in header"),
-            Self::InvalidVersionSemver => write!(f, "invalid version SemVer"),
+            Self::InvalidVersionSemver => write!(f, "invalid version SemVer in header"),
             Self::InvalidVersionTrailingBytes => {
                 write!(f, "invalid version trailing bytes in header")
             }

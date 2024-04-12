@@ -29,3 +29,12 @@ pub const PUBLIC_KEY_1_HEX: &str =
     "02118f59082b8e26753c1cab1bfead3259344c03312cbb4ff7bdecceb915e92c9b";
 pub const PUBLIC_KEY_2_HEX: &str =
     "0271a3e606578281f6bcb461a8ada671829c3348b688787c68baa75ad51916edfc";
+pub const DEVELOPER_SIGNED: &[u8] = include_bytes!("developer-signed.img");
+pub const SECRET_KEY_1_BYTES: &[u8] = &[
+    179, 247, 133, 163, 184, 180, 209, 161, 233, 126, 194, 120, 45, 26, 250, 143, 64, 119, 101,
+    149, 172, 118, 133, 137, 226, 24, 197, 114, 168, 129, 207, 187,
+];
+pub const SECRET_KEY_2_BYTES: &[u8] = &[
+    165, 173, 224, 118, 144, 45, 243, 15, 146, 156, 153, 56, 237, 13, 159, 208, 66, 208, 36, 143,
+    167, 240, 247, 115, 34, 1, 44, 218, 27, 221, 123, 244,
+];
