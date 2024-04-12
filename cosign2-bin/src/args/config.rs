@@ -2,10 +2,10 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Config {
-    pub pubkey: String,
-    pub secret: PathBuf,
-    pub known_pubkeys: Vec<String>,
-    pub target: String,
+    pub pubkey: Option<String>,
+    pub secret: Option<PathBuf>,
+    pub known_pubkeys: Option<Vec<String>>,
+    pub target: Option<String>,
 }
 
 impl Config {

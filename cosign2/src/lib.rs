@@ -351,7 +351,7 @@ impl Header {
             u32::try_from(firmware.len()).map_err(|_| Error::FirmwareTooLong)?;
         if firmware_size != actual_firmware_size {
             return Err(Error::InvalidFirmwareSize {
-                in_header: firmware_size,
+                header: firmware_size,
                 actual: actual_firmware_size,
             });
         }
@@ -431,16 +431,16 @@ pub enum Magic {
 }
 
 impl Magic {
-    fn from_bytes(b: [u8; 4]) -> Option<Self> {
-        match u32::from_le_bytes(b) {
-            0x12345678 => Some(Self::Atsama5d27KeyOs),
+    pub fn from_bytes(b: [u8; 4]) -> Option<Self> {
+        match b {
+            [0x78, 0x56, 0x34, 0x12] => Some(Self::Atsama5d27KeyOs),
             _ => None,
         }
     }
 
-    fn as_bytes(&self) -> [u8; 4] {
+    pub fn as_bytes(&self) -> [u8; 4] {
         match self {
-            Self::Atsama5d27KeyOs => 0x12345678u32.to_le_bytes(),
+            Self::Atsama5d27KeyOs => [0x78, 0x56, 0x34, 0x12],
         }
     }
 }
@@ -488,7 +488,7 @@ pub enum Error {
     HeaderWithNoSignature,
     InvalidDateTrailingBytes,
     InvalidDateUtf8,
-    InvalidFirmwareSize { in_header: u32, actual: u32 },
+    InvalidFirmwareSize { header: u32, actual: u32 },
     InvalidPubkey1,
     InvalidPubkey2,
     InvalidReservedBytes,
@@ -516,7 +516,10 @@ impl core::fmt::Display for Error {
             Self::HeaderWithNoSignature => write!(f, "header with no signature"),
             Self::InvalidDateTrailingBytes => write!(f, "invalid date trailing bytes in header"),
             Self::InvalidDateUtf8 => write!(f, "invalid date UTF-8 in header"),
-            Self::InvalidFirmwareSize { in_header, actual } => write!(
+            Self::InvalidFirmwareSize {
+                header: in_header,
+                actual,
+            } => write!(
                 f,
                 "invalid firmware size in header: should be {actual}, but is {in_header}",
             ),

@@ -164,9 +164,9 @@ where
                 return Err(Error::UnknownSigner);
             }
 
-            let magic = match target {
+            let magic = target.map(|t| match t {
                 args::Target::Atsama5d27KeyOs => cosign2::Magic::Atsama5d27KeyOs,
-            };
+            });
             let mut input_options = std::fs::OpenOptions::new();
             input_options.read(true);
             if let args::Output::InPlace = output {
@@ -207,7 +207,19 @@ where
                     Some(mut header) => {
                         match version {
                             Some(version) if header.version() != version.to_string() => {
-                                return Err(Error::VersionMismatch);
+                                return Err(Error::VersionMismatch {
+                                    header: header.version().to_owned(),
+                                    expected: version.to_string(),
+                                });
+                            }
+                            _ => {}
+                        }
+                        match magic {
+                            Some(magic) if header.magic() != magic => {
+                                return Err(Error::MagicMismatch {
+                                    header: header.magic(),
+                                    expected: magic,
+                                });
                             }
                             _ => {}
                         }
@@ -217,7 +229,7 @@ where
                     // If no header is present, create and sign a new header.
                     None => {
                         let header = cosign2::Header::sign_new(
-                            magic,
+                            magic.ok_or(Error::TargetMissing)?,
                             &version.ok_or(Error::VersionMissing)?.to_string(),
                             chrono::Utc::now().timestamp().try_into().expect("not 2106"),
                             if developer {
@@ -304,6 +316,7 @@ impl OutputFile {
 
 #[derive(Debug)]
 enum Error {
+    TargetMissing,
     Args(args::Error),
     Cosign2(cosign2::Error),
     CreateTempFile(std::io::Error),
@@ -318,7 +331,14 @@ enum Error {
     SeekOutputFile(std::io::Error),
     Stdout(std::io::Error),
     UnknownSigner,
-    VersionMismatch,
+    VersionMismatch {
+        header: String,
+        expected: String,
+    },
+    MagicMismatch {
+        header: cosign2::Magic,
+        expected: cosign2::Magic,
+    },
     VersionMissing,
     WriteOutputFile(std::io::Error),
 }
@@ -358,11 +378,11 @@ impl std::fmt::Display for Error {
             Error::SeekOutputFile(e) => write!(f, "failed to seek output file: {e}"),
             Error::Stdout(e) => write!(f, "failed to write to stdout: {e}"),
             Error::UnknownSigner => write!(f, "signing key is not in known pubkeys list"),
-            Error::VersionMismatch => {
+            Error::VersionMismatch { header, expected } => {
                 write!(
                     f,
-                    "version in header does not match --firmware-version, omit the flag or \
-                     specify the correct version"
+                    "version in header ({header}) does not match --firmware-version ({expected}), \
+                     omit the flag or specify the correct version"
                 )
             }
             Error::VersionMissing => {
@@ -372,6 +392,18 @@ impl std::fmt::Display for Error {
                 )
             }
             Error::WriteOutputFile(e) => write!(f, "failed to write to output file: {e}"),
+            Error::TargetMissing => write!(
+                f,
+                "target must be specified, either with --target or in the config file"
+            ),
+            Error::MagicMismatch { header, expected } => {
+                write!(
+                    f,
+                    "unexpected magic in header {}, expected {}",
+                    hex::encode(&header.as_bytes()),
+                    hex::encode(&expected.as_bytes())
+                )
+            }
         }
     }
 }

@@ -302,6 +302,178 @@ fn sign_with_trusted_key_from_config() {
     assert!(output.stderr.is_empty());
 }
 
+/// Attempt to specify the pubkey both in the config file and on the CLI.
+#[test]
+fn pubkey_in_config_and_cli() {
+    let input_file = create_file(fixtures::VALID_HEADER_ONE_SIGNATURE);
+    let output_file = tempfile::NamedTempFile::new().unwrap();
+    let private_key_pem = create_file(fixtures::PRIVATE_KEY_2_PEM);
+    let config_file = create_file(
+        format!(
+            r#"
+            pubkey = "{}"
+            "#,
+            fixtures::PUBLIC_KEY_2_HEX,
+        )
+        .as_bytes(),
+    );
+
+    let output = test([
+        "sign",
+        "--secret",
+        private_key_pem.path().to_str().unwrap(),
+        "--pubkey",
+        fixtures::PUBLIC_KEY_1_HEX,
+        "-i",
+        input_file.path().to_str().unwrap(),
+        "--target",
+        "atsama5d27-keyos",
+        "-o",
+        output_file.path().to_str().unwrap(),
+        "--config",
+        config_file.path().to_str().unwrap(),
+    ]);
+
+    assert_eq!(output.exit_code, ExitCode(1));
+    assert!(output.stdout.is_empty());
+    assert!(output
+        .stderr
+        .contains("pubkey specified in both config and cli"));
+    let mut buf = Vec::new();
+    output_file.as_file().read_to_end(&mut buf).unwrap();
+    assert!(buf.is_empty());
+}
+
+/// Attempt to specify the secret both in the config file and on the CLI.
+#[test]
+fn secret_in_config_and_cli() {
+    let input_file = create_file(fixtures::VALID_HEADER_ONE_SIGNATURE);
+    let output_file = tempfile::NamedTempFile::new().unwrap();
+    let private_key_pem = create_file(fixtures::PRIVATE_KEY_2_PEM);
+    let config_file = create_file(
+        format!(
+            r#"
+            secret = "{}"
+            "#,
+            private_key_pem.path().to_str().unwrap(),
+        )
+        .as_bytes(),
+    );
+
+    let output = test([
+        "sign",
+        "--secret",
+        private_key_pem.path().to_str().unwrap(),
+        "--pubkey",
+        fixtures::PUBLIC_KEY_1_HEX,
+        "-i",
+        input_file.path().to_str().unwrap(),
+        "--target",
+        "atsama5d27-keyos",
+        "-o",
+        output_file.path().to_str().unwrap(),
+        "--config",
+        config_file.path().to_str().unwrap(),
+    ]);
+
+    assert_eq!(output.exit_code, ExitCode(1));
+    assert!(output.stdout.is_empty());
+    assert!(output
+        .stderr
+        .contains("secret specified in both config and cli"));
+    let mut buf = Vec::new();
+    output_file.as_file().read_to_end(&mut buf).unwrap();
+    assert!(buf.is_empty());
+}
+
+/// Attempt to specify the known pubkeys both in the config file and on the CLI.
+#[test]
+fn known_pubkeys_in_config_and_cli() {
+    let input_file = create_file(fixtures::VALID_HEADER_ONE_SIGNATURE);
+    let output_file = tempfile::NamedTempFile::new().unwrap();
+    let private_key_pem = create_file(fixtures::PRIVATE_KEY_2_PEM);
+    let config_file = create_file(
+        format!(
+            r#"
+            known_pubkeys = ["{}", "{}"]
+            "#,
+            fixtures::PUBLIC_KEY_2_HEX,
+            fixtures::PUBLIC_KEY_1_HEX,
+        )
+        .as_bytes(),
+    );
+
+    let output = test([
+        "sign",
+        "--secret",
+        private_key_pem.path().to_str().unwrap(),
+        "--pubkey",
+        fixtures::PUBLIC_KEY_1_HEX,
+        "-i",
+        input_file.path().to_str().unwrap(),
+        "--target",
+        "atsama5d27-keyos",
+        "-o",
+        output_file.path().to_str().unwrap(),
+        "--config",
+        config_file.path().to_str().unwrap(),
+        "--known-pubkey",
+        fixtures::PUBLIC_KEY_2_HEX,
+    ]);
+
+    assert_eq!(output.exit_code, ExitCode(1));
+    assert!(output.stdout.is_empty());
+    assert!(output
+        .stderr
+        .contains("known pubkeys specified in both config and cli"));
+    let mut buf = Vec::new();
+    output_file.as_file().read_to_end(&mut buf).unwrap();
+    assert!(buf.is_empty());
+}
+
+/// Attempt to specify the target both in the config file and on the CLI.
+#[test]
+fn target_in_config_and_cli() {
+    let input_file = create_file(fixtures::VALID_HEADER_ONE_SIGNATURE);
+    let output_file = tempfile::NamedTempFile::new().unwrap();
+    let private_key_pem = create_file(fixtures::PRIVATE_KEY_2_PEM);
+    let config_file = create_file(
+        format!(
+            r#"
+            target = "atsama5d27-keyos"
+            "#,
+        )
+        .as_bytes(),
+    );
+
+    let output = test([
+        "sign",
+        "--secret",
+        private_key_pem.path().to_str().unwrap(),
+        "--pubkey",
+        fixtures::PUBLIC_KEY_1_HEX,
+        "-i",
+        input_file.path().to_str().unwrap(),
+        "--target",
+        "atsama5d27-keyos",
+        "-o",
+        output_file.path().to_str().unwrap(),
+        "--config",
+        config_file.path().to_str().unwrap(),
+        "--known-pubkey",
+        fixtures::PUBLIC_KEY_2_HEX,
+    ]);
+
+    assert_eq!(output.exit_code, ExitCode(1));
+    assert!(output.stdout.is_empty());
+    assert!(output
+        .stderr
+        .contains("target specified in both config and cli"));
+    let mut buf = Vec::new();
+    output_file.as_file().read_to_end(&mut buf).unwrap();
+    assert!(buf.is_empty());
+}
+
 /// Sign an image with a single developer key.
 #[test]
 fn sign_with_developer_key() {
@@ -431,6 +603,38 @@ fn resign_with_developer_key() {
     assert_eq!(output.exit_code, ExitCode(1));
     assert!(output.stdout.is_empty());
     assert!(output.stderr.contains("signature2 already present"));
+    let mut buf = Vec::new();
+    output_file.as_file().read_to_end(&mut buf).unwrap();
+    assert!(buf.is_empty());
+}
+
+/// Attempt to sign with a private key that doesn't match the specified public
+/// key.
+#[test]
+fn sign_pubkey_mismatch() {
+    let input_file = create_file(fixtures::UNSIGNED);
+    let output_file = tempfile::NamedTempFile::new().unwrap();
+    let private_key_pem = create_file(fixtures::PRIVATE_KEY_2_PEM);
+    let output = test([
+        "sign",
+        "--developer",
+        "--secret",
+        private_key_pem.path().to_str().unwrap(),
+        "--pubkey",
+        fixtures::PUBLIC_KEY_1_HEX,
+        "-i",
+        input_file.path().to_str().unwrap(),
+        "--target",
+        "atsama5d27-keyos",
+        "-o",
+        output_file.path().to_str().unwrap(),
+    ]);
+
+    assert_eq!(output.exit_code, ExitCode(1));
+    assert!(output.stdout.is_empty());
+    assert!(output
+        .stderr
+        .contains("public key does not match secret key"));
     let mut buf = Vec::new();
     output_file.as_file().read_to_end(&mut buf).unwrap();
     assert!(buf.is_empty());

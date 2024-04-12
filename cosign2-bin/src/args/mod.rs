@@ -17,7 +17,7 @@ pub enum Args {
         input: PathBuf,
         output: Output,
         version: Option<semver::Version>,
-        target: Target,
+        target: Option<Target>,
         known_pubkeys: Vec<secp256k1::PublicKey>,
         developer: bool,
     },
@@ -56,53 +56,51 @@ where
         } => {
             // Load and validate the config.
             let config = config.map(|c| config::Config::load(&c)).transpose()?;
-            let config_pubkey = config
-                .as_ref()
-                .map(|config| {
-                    secp256k1::PublicKey::from_slice(
-                        &hex::decode(&config.pubkey)
-                            .map_err(|_| Error::InvalidPubkeyHexInConfig)?,
-                    )
-                    .map_err(Error::InvalidPubkeyInConfig)
-                })
-                .transpose()?;
+            let config_pubkey = config.as_ref().and_then(|config| config.pubkey.clone());
             let config_secret_path = config
                 .as_ref()
-                .map(|config| {
-                    if !config.secret.is_absolute() {
-                        return Err(Error::SecretPathNotAbsoluteInConfig(config.secret.clone()));
-                    }
-                    Ok(config.secret.clone())
+                .and_then(|config| {
+                    config.secret.as_ref().map(|secret| {
+                        if !secret.is_absolute() {
+                            return Err(Error::SecretPathNotAbsoluteInConfig(secret.clone()));
+                        }
+                        Ok(secret.clone())
+                    })
                 })
                 .transpose()?;
             let config_known_pubkeys = config
                 .as_ref()
-                .map(|config| {
-                    config
-                        .known_pubkeys
-                        .iter()
-                        .map(|known_pubkey| {
-                            hex::decode(known_pubkey)
-                                .map_err(|_| {
-                                    Error::InvalidKnownPubkeyHexInConfig(known_pubkey.clone())
-                                })
-                                .and_then(|p| {
-                                    secp256k1::PublicKey::from_slice(&p).map_err(|_| {
-                                        Error::InvalidKnownPubkeyInConfig(known_pubkey.clone())
-                                    })
-                                })
-                        })
-                        .collect::<Result<Vec<_>, _>>()
-                })
-                .transpose()?;
-            let config_target = config
-                .as_ref()
-                .map(|config| match config.target.as_str() {
-                    "atsama5d27-keyos" => Ok(Target::Atsama5d27KeyOs),
-                    _ => Err(Error::InvalidTargetInConfig),
-                })
-                .transpose()?;
+                .and_then(|config| config.known_pubkeys.clone());
+            let config_target = config.as_ref().and_then(|config| config.target.clone());
 
+            // Reconcile the CLI and config arguments. Error if anything is specified both
+            // on the CLI and in the config file.
+            let pubkey = match (pubkey, config_pubkey) {
+                (None, None) => None,
+                (None, Some(pubkey)) => Some(pubkey),
+                (Some(pubkey), None) => Some(pubkey),
+                (Some(_), Some(_)) => return Err(Error::PubkeyInConfigAndCli),
+            };
+            let secret = match (secret, config_secret_path) {
+                (None, None) => return Err(Error::SecretMissing),
+                (None, Some(secret_path)) => secret_path,
+                (Some(secret), None) => secret,
+                (Some(_), Some(_)) => return Err(Error::SecretInConfigAndCli),
+            };
+            let known_pubkeys = match (known_pubkeys, config_known_pubkeys) {
+                (None, None) => Vec::new(),
+                (None, Some(known_pubkeys)) => known_pubkeys,
+                (Some(known_pubkeys), None) => known_pubkeys,
+                (Some(_), Some(_)) => return Err(Error::KnownPubkeysInConfigAndCli),
+            };
+            let target = match (target, config_target) {
+                (None, None) => None,
+                (None, Some(target)) => Some(target),
+                (Some(target), None) => Some(target),
+                (Some(_), Some(_)) => return Err(Error::TargetInConfigAndCli),
+            };
+
+            // Parse the arguments.
             let pubkey = pubkey
                 .map(|p| {
                     secp256k1::PublicKey::from_slice(
@@ -110,9 +108,7 @@ where
                     )
                     .map_err(Error::InvalidPubkey)
                 })
-                .transpose()?
-                .or(config_pubkey);
-            let secret = secret.or(config_secret_path).ok_or(Error::SecretMissing)?;
+                .transpose()?;
             let pem = std::fs::read(secret).map_err(Error::ReadPemFile)?;
             let key = pem::parse(pem)?;
             if key.tag() != "EC PRIVATE KEY" {
@@ -134,29 +130,20 @@ where
             let target = target
                 .map(|t| match t.as_str() {
                     "atsama5d27-keyos" => Ok(Target::Atsama5d27KeyOs),
-                    _ => Err(Error::InvalidTarget),
+                    _ => Err(Error::InvalidTarget(t)),
                 })
-                .transpose()?
-                .or(config_target)
-                .ok_or(Error::TargetMissing)?;
+                .transpose()?;
             let known_pubkeys = known_pubkeys
-                .map(|known_pubkeys| {
-                    known_pubkeys
-                        .into_iter()
-                        .map(|known_pubkey| {
-                            hex::decode(&known_pubkey)
-                                .map_err(|_| Error::InvalidKnownPubkeyHex(known_pubkey.clone()))
-                                .and_then(|p| {
-                                    secp256k1::PublicKey::from_slice(&p).map_err(|_| {
-                                        Error::InvalidKnownPubkey(known_pubkey.clone())
-                                    })
-                                })
+                .into_iter()
+                .map(|known_pubkey| {
+                    hex::decode(&known_pubkey)
+                        .map_err(|_| Error::InvalidKnownPubkeyHex(known_pubkey.clone()))
+                        .and_then(|p| {
+                            secp256k1::PublicKey::from_slice(&p)
+                                .map_err(|_| Error::InvalidKnownPubkey(known_pubkey.clone()))
                         })
-                        .collect::<Result<Vec<_>, _>>()
                 })
-                .transpose()?
-                .or(config_known_pubkeys)
-                .unwrap_or_default();
+                .collect::<Result<Vec<_>, _>>()?;
             Ok(Args::Sign {
                 pubkey,
                 secret,
@@ -173,27 +160,25 @@ where
 
 #[derive(Debug)]
 pub enum Error {
+    KnownPubkeysInConfigAndCli,
+    TargetInConfigAndCli,
     Cli(clap::Error),
     Config(ConfigError),
     InPlaceAndOutputSpecified,
     InvalidKnownPubkey(String),
     InvalidKnownPubkeyHex(String),
-    InvalidKnownPubkeyHexInConfig(String),
-    InvalidKnownPubkeyInConfig(String),
     InvalidPemTag(String),
     InvalidPubkey(secp256k1::Error),
     InvalidPubkeyHex,
-    InvalidPubkeyHexInConfig,
-    InvalidPubkeyInConfig(secp256k1::Error),
     InvalidSecretKey(secp256k1::Error),
-    InvalidTarget,
-    InvalidTargetInConfig,
+    InvalidTarget(String),
     ParseDerContent(sec1::der::Error),
     ParsePemFile(pem::PemError),
+    PubkeyInConfigAndCli,
     ReadPemFile(std::io::Error),
     SecretMissing,
+    SecretInConfigAndCli,
     SecretPathNotAbsoluteInConfig(PathBuf),
-    TargetMissing,
 }
 
 impl From<pem::PemError> for Error {
@@ -225,39 +210,14 @@ impl std::fmt::Display for Error {
                     pubkey
                 )
             }
-            Error::InvalidKnownPubkeyHexInConfig(pubkey) => {
-                write!(
-                    f,
-                    r#"config error: config file contains invalid known public key hex: "{pubkey}""#
-                )
-            }
-            Error::InvalidKnownPubkeyInConfig(pubkey) => {
-                write!(
-                    f,
-                    r#"config error: config file contains invalid known public key: "{pubkey}""#
-                )
-            }
             Error::InvalidPemTag(tag) => {
                 write!(f, r#"invalid PEM tag: "{tag}", expected "EC PRIVATE KEY""#)
             }
             Error::InvalidPubkey(e) => write!(f, "user specified invalid public key: {e}"),
             Error::InvalidPubkeyHex => write!(f, "user specified invalid public key hex"),
-            Error::InvalidPubkeyHexInConfig => {
-                write!(
-                    f,
-                    "config error: config file contains invalid public key hex"
-                )
-            }
-            Error::InvalidPubkeyInConfig(e) => {
-                write!(
-                    f,
-                    "config error: config file contains invalid public key: {e}"
-                )
-            }
             Error::InvalidSecretKey(e) => write!(f, "user specified invalid secret key: {e}"),
-            Error::InvalidTarget => write!(f, "user specified invalid target"),
-            Error::InvalidTargetInConfig => {
-                write!(f, "config error: config file contains invalid target")
+            Error::InvalidTarget(target) => {
+                write!(f, r#"user specified invalid target: "{target}""#)
             }
             Error::ParseDerContent(e) => {
                 write!(f, "failed to parse DER content inside PEM file: {e}")
@@ -272,8 +232,13 @@ impl std::fmt::Display for Error {
                     path.to_str().unwrap_or("<invalid path>")
                 )
             }
-            Error::TargetMissing => write!(f, "user did not specify a target"),
             Error::Cli(e) => write!(f, "{}", e.render().ansi()),
+            Error::KnownPubkeysInConfigAndCli => {
+                write!(f, "known pubkeys specified in both config and cli")
+            }
+            Error::TargetInConfigAndCli => write!(f, "target specified in both config and cli"),
+            Error::PubkeyInConfigAndCli => write!(f, "pubkey specified in both config and cli"),
+            Error::SecretInConfigAndCli => write!(f, "secret specified in both config and cli"),
         }
     }
 }
