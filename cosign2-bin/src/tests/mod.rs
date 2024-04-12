@@ -178,6 +178,117 @@ fn dump_invalid_header_invalid_signature2() {
     assert!(output.stderr.contains("invalid signature2"));
 }
 
+/// Sign an image with two trusted keys (i.e. not developer keys).
+#[test]
+fn sign_with_trusted_keys() {
+    // Sign the image with the first key.
+    let input_file = create_file(fixtures::UNSIGNED);
+    let output_file = tempfile::NamedTempFile::new().unwrap();
+    let private_key_pem = create_file(fixtures::PRIVATE_KEY_1_PEM);
+    let output = test([
+        "sign",
+        "--secret",
+        private_key_pem.path().to_str().unwrap(),
+        "-i",
+        input_file.path().to_str().unwrap(),
+        "--firmware-version",
+        "1.2.4-alpha1",
+        "--target",
+        "atsama5d27-keyos",
+        "-o",
+        output_file.path().to_str().unwrap(),
+    ]);
+
+    assert_eq!(output.exit_code, ExitCode(0));
+    assert!(output.stdout.is_empty());
+    assert!(output.stderr.is_empty());
+
+    let output = test(["dump", "-i", output_file.path().to_str().unwrap()]);
+
+    assert_eq!(output.exit_code, ExitCode(0));
+    assert!(output.stdout.contains("atsama5d27-keyos"));
+    assert!(output.stdout.contains("1.2.4-alpha1"));
+    assert!(output.stdout.contains("18 B (18)"));
+    assert!(output.stdout.contains(fixtures::PUBLIC_KEY_1_HEX));
+    assert!(output
+        .stdout
+        .contains("000000000000000000000000000000000000000000000000000000000000000000"));
+    assert!(output.stderr.is_empty());
+
+    // Sign the image with the second key.
+    let private_key_pem = create_file(fixtures::PRIVATE_KEY_2_PEM);
+    let final_output_file = tempfile::NamedTempFile::new().unwrap();
+    let output = test([
+        "sign",
+        "--secret",
+        private_key_pem.path().to_str().unwrap(),
+        "-i",
+        output_file.path().to_str().unwrap(),
+        "--target",
+        "atsama5d27-keyos",
+        "-o",
+        final_output_file.path().to_str().unwrap(),
+    ]);
+
+    assert_eq!(output.exit_code, ExitCode(0));
+    assert!(output.stdout.is_empty());
+    assert!(output.stderr.is_empty());
+
+    let output = test(["dump", "-i", final_output_file.path().to_str().unwrap()]);
+
+    assert_eq!(output.exit_code, ExitCode(0));
+    assert!(output.stdout.contains("atsama5d27-keyos"));
+    assert!(output.stdout.contains("1.2.4-alpha1"));
+    assert!(output.stdout.contains("18 B (18)"));
+    assert!(output.stdout.contains(fixtures::PUBLIC_KEY_1_HEX));
+    assert!(output.stdout.contains(fixtures::PUBLIC_KEY_2_HEX));
+    assert!(!output
+        .stdout
+        .contains("000000000000000000000000000000000000000000000000000000000000000000"));
+    assert!(!output
+        .stdout
+        .contains("0000000000000000000000000000000000000000000000000000000000000000"));
+    assert!(output.stderr.is_empty());
+}
+
+/// Sign an image with a single developer key.
+#[test]
+fn sign_with_developer_key() {
+    let input_file = create_file(fixtures::UNSIGNED);
+    let output_file = tempfile::NamedTempFile::new().unwrap();
+    let private_key_pem = create_file(fixtures::PRIVATE_KEY_1_PEM);
+    let output = test([
+        "sign",
+        "--developer",
+        "--secret",
+        private_key_pem.path().to_str().unwrap(),
+        "-i",
+        input_file.path().to_str().unwrap(),
+        "--firmware-version",
+        "1.2.4-alpha1",
+        "--target",
+        "atsama5d27-keyos",
+        "-o",
+        output_file.path().to_str().unwrap(),
+    ]);
+
+    assert_eq!(output.exit_code, ExitCode(0));
+    assert!(output.stdout.is_empty());
+    assert!(output.stderr.is_empty());
+
+    let output = test(["dump", "-i", output_file.path().to_str().unwrap()]);
+
+    assert_eq!(output.exit_code, ExitCode(0));
+    assert!(output.stdout.contains("atsama5d27-keyos"));
+    assert!(output.stdout.contains("1.2.4-alpha1"));
+    assert!(output.stdout.contains("18 B (18)"));
+    assert!(output.stdout.contains(fixtures::PUBLIC_KEY_1_HEX));
+    assert!(output
+        .stdout
+        .contains("000000000000000000000000000000000000000000000000000000000000000000"));
+    assert!(output.stderr.is_empty());
+}
+
 fn test<const N: usize>(args: [&str; N]) -> Output {
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();

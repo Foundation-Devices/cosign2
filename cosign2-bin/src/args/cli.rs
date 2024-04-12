@@ -39,7 +39,7 @@ pub enum Command {
         output: Option<PathBuf>,
         /// Version to write in the header.
         #[clap(long)]
-        firmware_version: semver::Version,
+        firmware_version: Option<semver::Version>,
         /// Developer mode, signs with a single key.
         #[clap(long)]
         developer: bool,

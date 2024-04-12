@@ -205,6 +205,12 @@ where
                 match cosign2::Header::parse(&input_buf, known_pubkeys.as_slice())? {
                     // If a header is present, add a second signature.
                     Some(mut header) => {
+                        match version {
+                            Some(version) if header.version() != version.to_string() => {
+                                return Err(Error::VersionMismatch);
+                            }
+                            _ => {}
+                        }
                         header.add_second_signature(&secret)?;
                         (header, &input_buf[cosign2::Header::SIZE..])
                     }
@@ -212,7 +218,7 @@ where
                     None => {
                         let header = cosign2::Header::sign_new(
                             magic,
-                            &version.to_string(),
+                            &version.ok_or(Error::VersionMissing)?.to_string(),
                             chrono::Utc::now().timestamp().try_into().expect("not 2106"),
                             if developer {
                                 cosign2::Signer::Developer(&secret)
@@ -312,6 +318,8 @@ enum Error {
     SeekOutputFile(std::io::Error),
     Stdout(std::io::Error),
     UnknownSigner,
+    VersionMismatch,
+    VersionMissing,
     WriteOutputFile(std::io::Error),
 }
 
@@ -350,6 +358,19 @@ impl std::fmt::Display for Error {
             Error::SeekOutputFile(e) => write!(f, "failed to seek output file: {e}"),
             Error::Stdout(e) => write!(f, "failed to write to stdout: {e}"),
             Error::UnknownSigner => write!(f, "signing key is not in known pubkeys list"),
+            Error::VersionMismatch => {
+                write!(
+                    f,
+                    "version in header does not match --firmware-version, omit the flag or \
+                     specify the correct version"
+                )
+            }
+            Error::VersionMissing => {
+                write!(
+                    f,
+                    "--firmware-version must be specified when signing a file without a header"
+                )
+            }
             Error::WriteOutputFile(e) => write!(f, "failed to write to output file: {e}"),
         }
     }

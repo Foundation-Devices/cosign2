@@ -16,7 +16,7 @@ pub enum Args {
         secret: secp256k1::SecretKey,
         input: PathBuf,
         output: Output,
-        version: semver::Version,
+        version: Option<semver::Version>,
         target: Target,
         known_pubkeys: Vec<secp256k1::PublicKey>,
         developer: bool,

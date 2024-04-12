@@ -22,3 +22,10 @@ pub const INVALID_HEADER_TWO_SIGNATURES_RESERVED_CHANGED: &[u8] =
     include_bytes!("invalid-header-two-signatures-reserved-changed.img");
 pub const INVALID_HEADER_ONE_SIGNATURE_FIRMWARE_CHANGED: &[u8] =
     include_bytes!("invalid-header-one-signature-firmware-changed.img");
+pub const UNSIGNED: &[u8] = include_bytes!("unsigned.img");
+pub const PRIVATE_KEY_1_PEM: &[u8] = include_bytes!("private-key-1.pem");
+pub const PRIVATE_KEY_2_PEM: &[u8] = include_bytes!("private-key-2.pem");
+pub const PUBLIC_KEY_1_HEX: &str =
+    "02118f59082b8e26753c1cab1bfead3259344c03312cbb4ff7bdecceb915e92c9b";
+pub const PUBLIC_KEY_2_HEX: &str =
+    "0271a3e606578281f6bcb461a8ada671829c3348b688787c68baa75ad51916edfc";
