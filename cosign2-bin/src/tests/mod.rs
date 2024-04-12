@@ -438,11 +438,9 @@ fn target_in_config_and_cli() {
     let output_file = tempfile::NamedTempFile::new().unwrap();
     let private_key_pem = create_file(fixtures::PRIVATE_KEY_2_PEM);
     let config_file = create_file(
-        format!(
-            r#"
-            target = "atsama5d27-keyos"
-            "#,
-        )
+        r#"
+        target = "atsama5d27-keyos"
+        "#
         .as_bytes(),
     );
 

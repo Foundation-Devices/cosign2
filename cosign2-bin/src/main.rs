@@ -400,8 +400,8 @@ impl std::fmt::Display for Error {
                 write!(
                     f,
                     "unexpected magic in header {}, expected {}",
-                    hex::encode(&header.as_bytes()),
-                    hex::encode(&expected.as_bytes())
+                    hex::encode(header.as_bytes()),
+                    hex::encode(expected.as_bytes())
                 )
             }
         }
