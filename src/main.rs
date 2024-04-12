@@ -173,6 +173,16 @@ fn run() -> Result<(), Error> {
                 move_file(output.file(), output.path(), &input, &input_path)
                     .map_err(Error::MoveTempFile)?;
             }
+
+            // Sanity check that the output file can be parsed. If not, it's possible the
+            // output file was being used by another process.
+            output
+                .file()
+                .seek(std::io::SeekFrom::Start(0))
+                .map_err(Error::SeekOutputFile)?;
+            cosign2::Header::parse(output.file(), &known_pubkeys)
+                .map_err(Error::ParseOutputFile)?
+                .ok_or(Error::ParseOutputFileNoHeader)?;
         }
     }
     Ok(())
@@ -215,7 +225,10 @@ enum Error {
     MoveTempFile(std::io::Error),
     OpenInputFile(std::io::Error),
     OpenOutputFile(std::io::Error),
+    ParseOutputFile(cosign2::Error),
+    ParseOutputFileNoHeader,
     SeekInputFile(std::io::Error),
+    SeekOutputFile(std::io::Error),
     UnknownSigner,
 }
 
@@ -245,7 +258,16 @@ impl std::fmt::Display for Error {
             Error::MoveTempFile(e) => write!(f, "failed to move temporary file to output: {e}"),
             Error::OpenInputFile(e) => write!(f, "failed to open input file: {e}"),
             Error::OpenOutputFile(e) => write!(f, "failed to open output file: {e}"),
+            Error::ParseOutputFile(e) => write!(
+                f,
+                "failed to parse output file after writing: {e}; is another process using it?"
+            ),
+            Error::ParseOutputFileNoHeader => write!(
+                f,
+                "output file has no header after writing; is another process using it?"
+            ),
             Error::SeekInputFile(e) => write!(f, "failed to seek input file: {e}"),
+            Error::SeekOutputFile(e) => write!(f, "failed to seek output file: {e}"),
             Error::UnknownSigner => write!(f, "signing key is not in known pubkeys list"),
         }
     }
