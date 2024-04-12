@@ -1,10 +1,8 @@
-// TODO After writing the output file, do another parse() as a sanity check. If
-// it fails print an error asking if other processes are writing to the file.
-
 use {
     colored::Colorize,
     std::{
-        io::Seek,
+        ffi::OsString,
+        io::{Seek, Write},
         path::{Path, PathBuf},
     },
 };
@@ -12,14 +10,34 @@ use {
 mod args;
 
 fn main() {
-    if let Err(e) = run() {
-        eprintln!("{}: {e}", "error".bold().red());
-        std::process::exit(1);
+    main_args(std::env::args_os(), std::io::stdout(), std::io::stderr());
+}
+
+fn main_args<I, T>(args: I, stdout: impl Write, mut stderr: impl Write)
+where
+    I: IntoIterator<Item = T>,
+    T: Into<OsString> + Clone,
+{
+    match run(args, stdout) {
+        Ok(()) => {}
+        Err(Error::Args(e @ args::Error::Cli(_))) => {
+            // Clap already does the "error: {}" formatting.
+            writeln!(&mut stderr, "{e}").expect("write error to stderr");
+            std::process::exit(1);
+        }
+        Err(e) => {
+            writeln!(&mut stderr, "{} {e}", "error:".bold().red()).expect("write error to stderr");
+            std::process::exit(1);
+        }
     }
 }
 
-fn run() -> Result<(), Error> {
-    match args::args()? {
+fn run<I, T>(args: I, mut stdout: impl Write) -> Result<(), Error>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<OsString> + Clone,
+{
+    match args::args(args)? {
         args::Args::Dump { input } => {
             let input = std::fs::File::open(input).map_err(Error::OpenInputFile)?;
             match cosign2::Header::parse(&input, &[])? {
@@ -29,59 +47,88 @@ fn run() -> Result<(), Error> {
                     };
                     let timestamp = chrono::DateTime::from_timestamp(header.timestamp().into(), 0)
                         .expect("valid timestamp");
-                    println!("{:10} {magic}", "magic".bold());
-                    println!(
+                    writeln!(&mut stdout, "{:10} {magic}", "magic".bold())
+                        .map_err(Error::Stdout)?;
+                    writeln!(
+                        &mut stdout,
                         "{:10} {timestamp} ({})",
                         "timestamp".bold(),
                         header.timestamp()
-                    );
-                    println!("{:10} {}", "date".bold(), header.date());
-                    println!("{:10} {}", "version".bold(), header.version());
+                    )
+                    .map_err(Error::Stdout)?;
+                    writeln!(&mut stdout, "{:10} {}", "date".bold(), header.date())
+                        .map_err(Error::Stdout)?;
+                    writeln!(&mut stdout, "{:10} {}", "version".bold(), header.version())
+                        .map_err(Error::Stdout)?;
                     let human_size =
                         humansize::format_size(header.firmware_size(), humansize::BINARY);
-                    println!(
+                    writeln!(
+                        &mut stdout,
                         "{:10} {human_size} ({})",
                         "size".bold(),
                         header.firmware_size()
-                    );
-                    println!(
+                    )
+                    .map_err(Error::Stdout)?;
+                    writeln!(
+                        &mut stdout,
                         "{:10} {}",
                         "pubkey1".bold(),
                         match header.pubkey1() {
                             Some(pubkey) => pubkey.to_string(),
                             None => "0".repeat(66),
                         }
-                    );
+                    )
+                    .map_err(Error::Stdout)?;
                     let signature1 = match header.signature1() {
                         Some(signature) => signature.serialize_compact(),
                         None => [0; 64],
                     };
-                    println!(
+                    writeln!(
+                        &mut stdout,
                         "{:10} {}",
                         "signature1".bold(),
                         hex::encode(&signature1[..32])
-                    );
-                    println!("{} {}", " ".repeat(10), hex::encode(&signature1[32..]));
-                    println!(
+                    )
+                    .map_err(Error::Stdout)?;
+                    writeln!(
+                        &mut stdout,
+                        "{} {}",
+                        " ".repeat(10),
+                        hex::encode(&signature1[32..])
+                    )
+                    .map_err(Error::Stdout)?;
+                    writeln!(
+                        &mut stdout,
                         "{:10} {}",
                         "pubkey2".bold(),
                         match header.pubkey2() {
                             Some(pubkey) => pubkey.to_string(),
                             None => "0".repeat(66),
                         }
-                    );
+                    )
+                    .map_err(Error::Stdout)?;
                     let signature2 = match header.signature2() {
                         Some(signature) => signature.serialize_compact(),
                         None => [0; 64],
                     };
-                    println!(
+                    writeln!(
+                        &mut stdout,
                         "{:10} {}",
                         "signature2".bold(),
                         hex::encode(&signature2[..32])
-                    );
-                    println!("{} {}", " ".repeat(10), hex::encode(&signature2[32..]));
+                    )
+                    .map_err(Error::Stdout)?;
+                    writeln!(
+                        &mut stdout,
+                        "{} {}",
+                        " ".repeat(10),
+                        hex::encode(&signature2[32..])
+                    )
+                    .map_err(Error::Stdout)?;
                 }
-                None => println!("no header found"),
+                None => {
+                    writeln!(&mut stdout, "{}", "no header found".bold()).map_err(Error::Stdout)?
+                }
             }
         }
         args::Args::Sign {
@@ -123,10 +170,18 @@ fn run() -> Result<(), Error> {
                     // file will be moved to the input file at the end of the process.
                     tempfile::NamedTempFile::new().map_err(Error::CreateTempFile)?,
                 ),
-                args::Output::File(path) => OutputFile::File(
-                    std::fs::File::create(&path).map_err(Error::OpenOutputFile)?,
-                    path.to_owned(),
-                ),
+                args::Output::File(path) => {
+                    let mut output_options = std::fs::OpenOptions::new();
+                    let file = output_options
+                        // After being written, the output file will be read and parsed as a sanity
+                        // check.
+                        .read(true)
+                        .write(true)
+                        .create(true)
+                        .open(&path)
+                        .map_err(Error::OpenOutputFile)?;
+                    OutputFile::File(file, path.to_owned())
+                }
             };
 
             let header = match cosign2::Header::parse(&input, &known_pubkeys)? {
@@ -230,6 +285,7 @@ enum Error {
     SeekInputFile(std::io::Error),
     SeekOutputFile(std::io::Error),
     UnknownSigner,
+    Stdout(std::io::Error),
 }
 
 impl From<args::Error> for Error {
@@ -269,6 +325,7 @@ impl std::fmt::Display for Error {
             Error::SeekInputFile(e) => write!(f, "failed to seek input file: {e}"),
             Error::SeekOutputFile(e) => write!(f, "failed to seek output file: {e}"),
             Error::UnknownSigner => write!(f, "signing key is not in known pubkeys list"),
+            Error::Stdout(e) => write!(f, "failed to write to stdout: {e}"),
         }
     }
 }

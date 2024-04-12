@@ -34,8 +34,12 @@ pub enum Target {
     Atsama5d27KeyOs,
 }
 
-pub fn args() -> Result<Args, Error> {
-    let cli = cli::Args::parse();
+pub fn args<I, T>(args: I) -> Result<Args, Error>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<std::ffi::OsString> + Clone,
+{
+    let cli = cli::Args::try_parse_from(args).map_err(Error::Cli)?;
     match cli.command {
         cli::Command::Dump { input: file } => Ok(Args::Dump { input: file }),
         cli::Command::Sign {
@@ -169,6 +173,7 @@ pub fn args() -> Result<Args, Error> {
 
 #[derive(Debug)]
 pub enum Error {
+    Cli(clap::Error),
     Config(ConfigError),
     InPlaceAndOutputSpecified,
     InvalidKnownPubkey(String),
@@ -268,6 +273,7 @@ impl std::fmt::Display for Error {
                 )
             }
             Error::TargetMissing => write!(f, "user did not specify a target"),
+            Error::Cli(e) => write!(f, "{}", e.render().ansi()),
         }
     }
 }
