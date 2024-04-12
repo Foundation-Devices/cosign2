@@ -132,7 +132,7 @@ impl Header {
         };
         header.set_date(timestamp);
         header.set_version(version)?;
-        header.hash_and_validate(firmware, &[])?;
+        header.hash_and_validate(&[0; Self::RESERVED], firmware, &[])?;
 
         // Sign the header.
         let mut secp = StackAllocatedSecp256k1::new();
@@ -165,9 +165,7 @@ impl Header {
     /// signers. If the known signers slice is empty, any signer is
     /// accepted.
     ///
-    /// If the header is missing, `None` is returned, and only the first four
-    /// bytes are consumed from the reader. Otherwise, the reader is
-    /// advanced to the end.
+    /// If the header is missing, `None` is returned.
     pub fn parse(
         data: &[u8],
         known_signers: &[secp256k1::PublicKey],
@@ -217,7 +215,7 @@ impl Header {
             hash: secp256k1::Message::from_digest([0; 32]),
         };
 
-        header.hash_and_validate(&data[Self::SIZE..], known_signers)?;
+        header.hash_and_validate(reserved, &data[Self::SIZE..], known_signers)?;
 
         // Check that the reserved bytes are all zero.
         if reserved.iter().any(|&b| b != 0) {
@@ -273,6 +271,7 @@ impl Header {
     /// signature checks over the hash.
     fn hash_and_validate(
         &mut self,
+        reserved: &[u8],
         firmware: &[u8],
         known_signers: &[secp256k1::PublicKey],
     ) -> Result<(), Error> {
@@ -285,7 +284,7 @@ impl Header {
         hasher.update(self.version);
         hasher.update(self.firmware_size);
         // Include the reserved bytes in the hash.
-        hasher.update([0u8; Self::RESERVED]);
+        hasher.update(reserved);
         // Hash the firmware code.
         hasher.update(firmware);
         // Do a second hash to avoid length extension attacks.

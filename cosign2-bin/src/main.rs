@@ -9,25 +9,33 @@ use {
 
 mod args;
 
-fn main() {
-    main_args(std::env::args_os(), std::io::stdout(), std::io::stderr());
+#[cfg(test)]
+mod tests;
+
+fn main() -> std::process::ExitCode {
+    main_args(
+        std::env::args_os(),
+        &mut std::io::stdout(),
+        &mut std::io::stderr(),
+    )
+    .into()
 }
 
-fn main_args<I, T>(args: I, stdout: impl Write, mut stderr: impl Write)
+fn main_args<I, T>(args: I, stdout: impl Write, mut stderr: impl Write) -> ExitCode
 where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
 {
     match run(args, stdout) {
-        Ok(()) => {}
+        Ok(()) => ExitCode(0),
         Err(Error::Args(e @ args::Error::Cli(_))) => {
             // Clap already does the "error: {}" formatting.
-            writeln!(&mut stderr, "{e}").expect("write error to stderr");
-            std::process::exit(1);
+            writeln!(stderr, "{e}").expect("write error to stderr");
+            ExitCode(1)
         }
         Err(e) => {
-            writeln!(&mut stderr, "{} {e}", "error:".bold().red()).expect("write error to stderr");
-            std::process::exit(1);
+            writeln!(stderr, "{} {e}", "error:".bold().red()).expect("write error to stderr");
+            ExitCode(1)
         }
     }
 }
@@ -251,6 +259,15 @@ where
         }
     }
     Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ExitCode(u8);
+
+impl From<ExitCode> for std::process::ExitCode {
+    fn from(code: ExitCode) -> Self {
+        code.0.into()
+    }
 }
 
 #[derive(Debug)]
