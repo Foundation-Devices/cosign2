@@ -160,8 +160,6 @@ where
 
 #[derive(Debug)]
 pub enum Error {
-    KnownPubkeysInConfigAndCli,
-    TargetInConfigAndCli,
     Cli(clap::Error),
     Config(ConfigError),
     InPlaceAndOutputSpecified,
@@ -172,13 +170,15 @@ pub enum Error {
     InvalidPubkeyHex,
     InvalidSecretKey(secp256k1::Error),
     InvalidTarget(String),
+    KnownPubkeysInConfigAndCli,
     ParseDerContent(sec1::der::Error),
     ParsePemFile(pem::PemError),
     PubkeyInConfigAndCli,
     ReadPemFile(std::io::Error),
-    SecretMissing,
     SecretInConfigAndCli,
+    SecretMissing,
     SecretPathNotAbsoluteInConfig(PathBuf),
+    TargetInConfigAndCli,
 }
 
 impl From<pem::PemError> for Error {
@@ -196,6 +196,7 @@ impl From<ConfigError> for Error {
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Error::Cli(e) => write!(f, "{}", e.render().ansi()),
             Error::Config(e) => write!(f, "config error: {e}"),
             Error::InPlaceAndOutputSpecified => {
                 write!(f, "cannot specify both --in-place and --output (-o)")
@@ -219,11 +220,16 @@ impl std::fmt::Display for Error {
             Error::InvalidTarget(target) => {
                 write!(f, r#"user specified invalid target: "{target}""#)
             }
+            Error::KnownPubkeysInConfigAndCli => {
+                write!(f, "known pubkeys specified in both config and cli")
+            }
             Error::ParseDerContent(e) => {
                 write!(f, "failed to parse DER content inside PEM file: {e}")
             }
             Error::ParsePemFile(e) => write!(f, "invalid PEM file: {e}"),
+            Error::PubkeyInConfigAndCli => write!(f, "pubkey specified in both config and cli"),
             Error::ReadPemFile(e) => write!(f, "failed to read PEM file: {e}"),
+            Error::SecretInConfigAndCli => write!(f, "secret specified in both config and cli"),
             Error::SecretMissing => write!(f, "user did not specify a secret key"),
             Error::SecretPathNotAbsoluteInConfig(path) => {
                 write!(
@@ -232,13 +238,7 @@ impl std::fmt::Display for Error {
                     path.to_str().unwrap_or("<invalid path>")
                 )
             }
-            Error::Cli(e) => write!(f, "{}", e.render().ansi()),
-            Error::KnownPubkeysInConfigAndCli => {
-                write!(f, "known pubkeys specified in both config and cli")
-            }
             Error::TargetInConfigAndCli => write!(f, "target specified in both config and cli"),
-            Error::PubkeyInConfigAndCli => write!(f, "pubkey specified in both config and cli"),
-            Error::SecretInConfigAndCli => write!(f, "secret specified in both config and cli"),
         }
     }
 }

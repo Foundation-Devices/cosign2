@@ -316,11 +316,14 @@ impl OutputFile {
 
 #[derive(Debug)]
 enum Error {
-    TargetMissing,
     Args(args::Error),
     Cosign2(cosign2::Error),
     CreateTempFile(std::io::Error),
     KeyMismatch,
+    MagicMismatch {
+        header: cosign2::Magic,
+        expected: cosign2::Magic,
+    },
     MoveTempFile(std::io::Error),
     OpenInputFile(std::io::Error),
     OpenOutputFile(std::io::Error),
@@ -330,14 +333,11 @@ enum Error {
     ReadOutputFile(std::io::Error),
     SeekOutputFile(std::io::Error),
     Stdout(std::io::Error),
+    TargetMissing,
     UnknownSigner,
     VersionMismatch {
         header: String,
         expected: String,
-    },
-    MagicMismatch {
-        header: cosign2::Magic,
-        expected: cosign2::Magic,
     },
     VersionMissing,
     WriteOutputFile(std::io::Error),
@@ -362,6 +362,14 @@ impl std::fmt::Display for Error {
             Error::Cosign2(e) => write!(f, "{e}"),
             Error::CreateTempFile(e) => write!(f, "failed to create temporary file: {e}"),
             Error::KeyMismatch => write!(f, "public key does not match secret key"),
+            Error::MagicMismatch { header, expected } => {
+                write!(
+                    f,
+                    "unexpected magic in header {}, expected {}",
+                    hex::encode(header.as_bytes()),
+                    hex::encode(expected.as_bytes())
+                )
+            }
             Error::MoveTempFile(e) => write!(f, "failed to move temporary file to output: {e}"),
             Error::OpenInputFile(e) => write!(f, "failed to open input file: {e}"),
             Error::OpenOutputFile(e) => write!(f, "failed to open output file: {e}"),
@@ -377,6 +385,10 @@ impl std::fmt::Display for Error {
             Error::ReadOutputFile(e) => write!(f, "failed to read output file: {e}"),
             Error::SeekOutputFile(e) => write!(f, "failed to seek output file: {e}"),
             Error::Stdout(e) => write!(f, "failed to write to stdout: {e}"),
+            Error::TargetMissing => write!(
+                f,
+                "target must be specified, either with --target or in the config file"
+            ),
             Error::UnknownSigner => write!(f, "signing key is not in known pubkeys list"),
             Error::VersionMismatch { header, expected } => {
                 write!(
@@ -392,18 +404,6 @@ impl std::fmt::Display for Error {
                 )
             }
             Error::WriteOutputFile(e) => write!(f, "failed to write to output file: {e}"),
-            Error::TargetMissing => write!(
-                f,
-                "target must be specified, either with --target or in the config file"
-            ),
-            Error::MagicMismatch { header, expected } => {
-                write!(
-                    f,
-                    "unexpected magic in header {}, expected {}",
-                    hex::encode(header.as_bytes()),
-                    hex::encode(expected.as_bytes())
-                )
-            }
         }
     }
 }
