@@ -2,7 +2,7 @@ use {
     colored::Colorize,
     std::{
         ffi::OsString,
-        io::{Seek, Write},
+        io::{Read, Seek, Write},
         path::{Path, PathBuf},
     },
 };
@@ -39,8 +39,12 @@ where
 {
     match args::args(args)? {
         args::Args::Dump { input } => {
-            let input = std::fs::File::open(input).map_err(Error::OpenInputFile)?;
-            match cosign2::Header::parse(&input, &[])? {
+            let mut input_buf = Vec::new();
+            std::fs::File::open(input)
+                .map_err(Error::OpenInputFile)?
+                .read_to_end(&mut input_buf)
+                .map_err(Error::ReadInputFile)?;
+            match cosign2::Header::parse(&input_buf, &[])? {
                 Some(header) => {
                     let magic = match header.magic() {
                         cosign2::Magic::Atsama5d27KeyOs => "atsama5d27-keyos",
@@ -184,42 +188,43 @@ where
                 }
             };
 
-            let header = match cosign2::Header::parse(&input, &known_pubkeys)? {
-                // If a header is present, add a second signature.
-                Some(mut header) => {
-                    header.add_second_signature(&secret)?;
-                    header
-                }
-                // If no header is present, create and sign a new header.
-                None => {
-                    input
-                        .seek(std::io::SeekFrom::Start(0))
-                        .map_err(Error::SeekInputFile)?;
-                    cosign2::Header::sign_new(
-                        magic,
-                        version,
-                        input
-                            .metadata()
-                            .map_err(Error::InputFileMetadata)?
-                            .len()
-                            .try_into()
-                            .map_err(|_| Error::Cosign2(cosign2::Error::FirmwareTooLong))?,
-                        if developer {
-                            cosign2::Signer::Developer(&secret)
-                        } else {
-                            cosign2::Signer::Trusted(&secret)
-                        },
-                        &input,
-                    )?
-                }
-            };
+            let mut input_buf = Vec::new();
+            input
+                .read_to_end(&mut input_buf)
+                .map_err(Error::ReadInputFile)?;
+
+            let (header, mut firmware) =
+                match cosign2::Header::parse(&input_buf, known_pubkeys.as_slice())? {
+                    // If a header is present, add a second signature.
+                    Some(mut header) => {
+                        header.add_second_signature(&secret)?;
+                        (header, &input_buf[cosign2::Header::SIZE..])
+                    }
+                    // If no header is present, create and sign a new header.
+                    None => {
+                        let header = cosign2::Header::sign_new(
+                            magic,
+                            &version.to_string(),
+                            chrono::Utc::now().timestamp().try_into().expect("not 2106"),
+                            if developer {
+                                cosign2::Signer::Developer(&secret)
+                            } else {
+                                cosign2::Signer::Trusted(&secret)
+                            },
+                            &input_buf,
+                        )?;
+                        (header, input_buf.as_slice())
+                    }
+                };
 
             // Write the signed header and firmware to output file.
-            header.serialize(output.file())?;
-            input
-                .seek(std::io::SeekFrom::Start(0))
-                .map_err(Error::SeekInputFile)?;
-            std::io::copy(&mut input, &mut output.file()).map_err(Error::CopyFirmware)?;
+            let mut header_buf = [0u8; cosign2::Header::SIZE];
+            header.serialize(&mut header_buf)?;
+            output
+                .file()
+                .write_all(&header_buf)
+                .map_err(Error::WriteOutputFile)?;
+            std::io::copy(&mut firmware, &mut output.file()).map_err(Error::WriteOutputFile)?;
 
             // When working in-place, the output is actually first written to a temporary
             // file. To achieve the effect of in-place editing, the temporary
@@ -235,7 +240,12 @@ where
                 .file()
                 .seek(std::io::SeekFrom::Start(0))
                 .map_err(Error::SeekOutputFile)?;
-            cosign2::Header::parse(output.file(), &known_pubkeys)
+            let mut output_buf = Vec::new();
+            output
+                .file()
+                .read_to_end(&mut output_buf)
+                .map_err(Error::ReadOutputFile)?;
+            cosign2::Header::parse(&output_buf, &known_pubkeys)
                 .map_err(Error::ParseOutputFile)?
                 .ok_or(Error::ParseOutputFileNoHeader)?;
         }
@@ -272,20 +282,20 @@ impl OutputFile {
 #[derive(Debug)]
 enum Error {
     Args(args::Error),
-    CopyFirmware(std::io::Error),
     Cosign2(cosign2::Error),
     CreateTempFile(std::io::Error),
-    InputFileMetadata(std::io::Error),
     KeyMismatch,
     MoveTempFile(std::io::Error),
     OpenInputFile(std::io::Error),
     OpenOutputFile(std::io::Error),
     ParseOutputFile(cosign2::Error),
     ParseOutputFileNoHeader,
-    SeekInputFile(std::io::Error),
+    ReadInputFile(std::io::Error),
+    ReadOutputFile(std::io::Error),
     SeekOutputFile(std::io::Error),
-    UnknownSigner,
     Stdout(std::io::Error),
+    UnknownSigner,
+    WriteOutputFile(std::io::Error),
 }
 
 impl From<args::Error> for Error {
@@ -304,12 +314,8 @@ impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             Error::Args(e) => write!(f, "{e}"),
-            Error::CopyFirmware(e) => {
-                write!(f, "failed to copy firmware from input to output file: {e}")
-            }
             Error::Cosign2(e) => write!(f, "{e}"),
             Error::CreateTempFile(e) => write!(f, "failed to create temporary file: {e}"),
-            Error::InputFileMetadata(e) => write!(f, "failed to get input file metadata: {e}"),
             Error::KeyMismatch => write!(f, "public key does not match secret key"),
             Error::MoveTempFile(e) => write!(f, "failed to move temporary file to output: {e}"),
             Error::OpenInputFile(e) => write!(f, "failed to open input file: {e}"),
@@ -322,10 +328,12 @@ impl std::fmt::Display for Error {
                 f,
                 "output file has no header after writing; is another process using it?"
             ),
-            Error::SeekInputFile(e) => write!(f, "failed to seek input file: {e}"),
+            Error::ReadInputFile(e) => write!(f, "failed to read input file: {e}"),
+            Error::ReadOutputFile(e) => write!(f, "failed to read output file: {e}"),
             Error::SeekOutputFile(e) => write!(f, "failed to seek output file: {e}"),
-            Error::UnknownSigner => write!(f, "signing key is not in known pubkeys list"),
             Error::Stdout(e) => write!(f, "failed to write to stdout: {e}"),
+            Error::UnknownSigner => write!(f, "signing key is not in known pubkeys list"),
+            Error::WriteOutputFile(e) => write!(f, "failed to write to output file: {e}"),
         }
     }
 }

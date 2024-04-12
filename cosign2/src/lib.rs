@@ -1,10 +1,6 @@
-use {
-    sha2::Digest,
-    std::{
-        io::{Read, Write},
-        str::FromStr,
-    },
-};
+#![no_std]
+
+use {chrono::Datelike, core::str::FromStr, sha2::Digest};
 
 #[cfg(test)]
 mod tests;
@@ -20,8 +16,6 @@ pub struct Header {
     signature1: [u8; 64],
     pubkey2: [u8; 33],
     signature2: [u8; 64],
-    /// Reserved zero bytes at the end of the header.
-    reserved: [u8; 1808],
     /// Hash of the header and firmware code.
     hash: secp256k1::Message,
 }
@@ -29,6 +23,9 @@ pub struct Header {
 impl Header {
     /// Size of the header in bytes.
     pub const SIZE: usize = 2048;
+
+    /// Number of reserved bytes at the end of the header.
+    const RESERVED: usize = 1808;
 
     /// Magic number.
     pub fn magic(&self) -> Magic {
@@ -44,26 +41,23 @@ impl Header {
     ///
     /// Used for displaying the firmware date during device boot, where advanced
     /// date manipulation functions are not available.
-    pub fn date(&self) -> String {
+    pub fn date(&self) -> &str {
         let first_zero = self
             .date
             .iter()
             .position(|&b| b == 0)
             .unwrap_or(self.date.len());
-        std::str::from_utf8(&self.date[..first_zero])
-            .expect("validated")
-            .to_string()
+        core::str::from_utf8(&self.date[..first_zero]).expect("validated")
     }
 
     /// Firmware version.
-    pub fn version(&self) -> semver::Version {
+    pub fn version(&self) -> &str {
         let first_zero = self
             .version
             .iter()
             .position(|&b| b == 0)
             .unwrap_or(self.version.len());
-        let version = std::str::from_utf8(&self.version[..first_zero]).expect("validated");
-        semver::Version::from_str(version).expect("validated")
+        core::str::from_utf8(&self.version[..first_zero]).expect("validated")
     }
 
     /// The size of the firmware.
@@ -114,37 +108,39 @@ impl Header {
     /// Create a new header and sign it.
     pub fn sign_new(
         magic: Magic,
-        version: semver::Version,
-        firmware_size: u32,
+        version: &str,
+        timestamp: u32,
         signer: Signer<'_>,
-        data: impl Read,
+        firmware: &[u8],
     ) -> Result<Self, Error> {
-        let time = chrono::Utc::now();
+        // Validate the version string.
+        semver::Version::from_str(version).map_err(|_| Error::InvalidVersionSemver)?;
+
         let mut header = Self {
             magic: magic.as_bytes(),
-            timestamp: u32::try_from(time.timestamp())
-                .expect("year 2106")
-                .to_le_bytes(),
+            timestamp: timestamp.to_le_bytes(),
             date: [0; 14],
             version: [0; 20],
-            firmware_size: firmware_size.to_le_bytes(),
+            firmware_size: u32::try_from(firmware.len())
+                .map_err(|_| Error::FirmwareTooLong)?
+                .to_le_bytes(),
             pubkey1: [0; 33],
             signature1: [0; 64],
             pubkey2: [0; 33],
             signature2: [0; 64],
-            reserved: [0; 1808],
             hash: secp256k1::Message::from_digest([0; 32]),
         };
-        header.set_date(time);
+        header.set_date(timestamp);
         header.set_version(version)?;
-        header.hash_and_validate(data, &[])?;
+        header.hash_and_validate(firmware, &[])?;
 
         // Sign the header.
+        let mut secp = StackAllocatedSecp256k1::new();
+        let secp = secp.create_for_signing()?;
         match signer {
             Signer::Trusted(key) => {
                 // Trusted key is used, so both first and second signatures need to be filled
                 // in. This key is used for the first signature.
-                let secp = secp256k1::Secp256k1::new();
                 let pubkey = secp256k1::PublicKey::from_secret_key(&secp, key);
                 let signature = secp.sign_ecdsa(&header.hash, key);
                 header.pubkey1 = pubkey.serialize();
@@ -153,7 +149,6 @@ impl Header {
             Signer::Developer(key) => {
                 // Developer key is used, so only the second signature is filled in.
                 // The first signature is left empty (zeroed out).
-                let secp = secp256k1::Secp256k1::new();
                 let pubkey = secp256k1::PublicKey::from_secret_key(&secp, key);
                 let signature = secp.sign_ecdsa(&header.hash, key);
                 header.pubkey2 = pubkey.serialize();
@@ -174,23 +169,32 @@ impl Header {
     /// bytes are consumed from the reader. Otherwise, the reader is
     /// advanced to the end.
     pub fn parse(
-        mut r: impl Read,
+        data: &[u8],
         known_signers: &[secp256k1::PublicKey],
     ) -> Result<Option<Self>, Error> {
-        let magic = read(&mut r)?.ok_or(Error::HeaderTooShort)?;
+        if data.len() < 4 {
+            return Ok(None);
+        }
+
+        let magic = data[..4].try_into().unwrap();
         if Magic::from_bytes(magic).is_none() {
             // Magic value is missing or not recognized, so this is not a header.
             return Ok(None);
         }
 
-        let timestamp = read(&mut r)?.ok_or(Error::HeaderTooShort)?;
-        let date = read(&mut r)?.ok_or(Error::HeaderTooShort)?;
-        let version = read(&mut r)?.ok_or(Error::HeaderTooShort)?;
-        let firmware_size = read(&mut r)?.ok_or(Error::HeaderTooShort)?;
-        let pubkey1 = read(&mut r)?.ok_or(Error::HeaderTooShort)?;
-        let signature1 = read(&mut r)?.ok_or(Error::HeaderTooShort)?;
-        let pubkey2 = read(&mut r)?.ok_or(Error::HeaderTooShort)?;
-        let signature2 = read(&mut r)?.ok_or(Error::HeaderTooShort)?;
+        // The data contains a header, so make sure it's of appropriate length.
+        if data.len() < Self::SIZE {
+            return Err(Error::HeaderTooShort);
+        }
+
+        let timestamp = data[4..8].try_into().unwrap();
+        let date = data[8..22].try_into().unwrap();
+        let version = data[22..42].try_into().unwrap();
+        let firmware_size = data[42..46].try_into().unwrap();
+        let pubkey1 = data[46..79].try_into().unwrap();
+        let signature1 = data[79..143].try_into().unwrap();
+        let pubkey2 = data[143..176].try_into().unwrap();
+        let signature2 = data[176..240].try_into().unwrap();
 
         // When parsing an existing header, there should always be at least one
         // signature.
@@ -198,7 +202,7 @@ impl Header {
             return Err(Error::HeaderWithNoSignature);
         }
 
-        let reserved = read(&mut r)?.ok_or(Error::HeaderTooShort)?;
+        let reserved = &data[240..Self::SIZE];
 
         let mut header = Self {
             magic,
@@ -210,27 +214,37 @@ impl Header {
             signature1,
             pubkey2,
             signature2,
-            reserved,
             hash: secp256k1::Message::from_digest([0; 32]),
         };
 
-        header.hash_and_validate(r, known_signers)?;
+        header.hash_and_validate(&data[Self::SIZE..], known_signers)?;
+
+        // Check that the reserved bytes are all zero.
+        if reserved.iter().any(|&b| b != 0) {
+            return Err(Error::InvalidReservedBytes);
+        }
 
         Ok(Some(header))
     }
 
-    /// Serialize the header to a writer.
-    pub fn serialize(&self, mut w: impl Write) -> Result<(), Error> {
-        w.write_all(&self.magic).map_err(Error::Serialize)?;
-        w.write_all(&self.timestamp).map_err(Error::Serialize)?;
-        w.write_all(&self.date).map_err(Error::Serialize)?;
-        w.write_all(&self.version).map_err(Error::Serialize)?;
-        w.write_all(&self.firmware_size).map_err(Error::Serialize)?;
-        w.write_all(&self.pubkey1).map_err(Error::Serialize)?;
-        w.write_all(&self.signature1).map_err(Error::Serialize)?;
-        w.write_all(&self.pubkey2).map_err(Error::Serialize)?;
-        w.write_all(&self.signature2).map_err(Error::Serialize)?;
-        w.write_all(&self.reserved).map_err(Error::Serialize)?;
+    /// Serialize the header to a buffer. Exactly [`Self::SIZE`] bytes will be
+    /// written.
+    pub fn serialize(&self, buf: &mut [u8]) -> Result<(), Error> {
+        if buf.len() < Self::SIZE {
+            return Err(Error::SerializeBufferTooSmall);
+        }
+
+        buf[..4].copy_from_slice(&self.magic);
+        buf[4..8].copy_from_slice(&self.timestamp);
+        buf[8..22].copy_from_slice(&self.date);
+        buf[22..42].copy_from_slice(&self.version);
+        buf[42..46].copy_from_slice(&self.firmware_size);
+        buf[46..79].copy_from_slice(&self.pubkey1);
+        buf[79..143].copy_from_slice(&self.signature1);
+        buf[143..176].copy_from_slice(&self.pubkey2);
+        buf[176..240].copy_from_slice(&self.signature2);
+        buf[240..Self::SIZE].copy_from_slice(&[0u8; Self::RESERVED]);
+
         Ok(())
     }
 
@@ -245,7 +259,8 @@ impl Header {
         if self.signature2 != [0; 64] {
             return Err(Error::Signature2Present);
         }
-        let secp = secp256k1::Secp256k1::new();
+        let mut secp = StackAllocatedSecp256k1::new();
+        let secp = secp.create_for_signing()?;
         if self.pubkey1 == key.public_key(&secp).serialize() {
             return Err(Error::PubkeyAlreadyUsed);
         }
@@ -258,7 +273,7 @@ impl Header {
     /// signature checks over the hash.
     fn hash_and_validate(
         &mut self,
-        mut data: impl Read,
+        firmware: &[u8],
         known_signers: &[secp256k1::PublicKey],
     ) -> Result<(), Error> {
         // Calculate the hash of the header and firmware code.
@@ -269,26 +284,17 @@ impl Header {
         hasher.update(self.date);
         hasher.update(self.version);
         hasher.update(self.firmware_size);
-        hasher.update(self.reserved);
+        // Include the reserved bytes in the hash.
+        hasher.update([0u8; Self::RESERVED]);
         // Hash the firmware code.
-        let mut num_bytes_read = 0u32;
-        let mut buf = [0; 1024];
-        loop {
-            let n = data.read(&mut buf).map_err(Error::Read)?;
-            if n == 0 {
-                break;
-            }
-            num_bytes_read = num_bytes_read
-                .checked_add(n.try_into().unwrap())
-                .ok_or(Error::FirmwareTooLong)?;
-            hasher.update(&buf[..n]);
-        }
+        hasher.update(firmware);
         // Do a second hash to avoid length extension attacks.
         self.hash = secp256k1::Message::from_digest_slice(&sha2::Sha256::digest(hasher.finalize()))
             .expect("32 bytes");
 
         // The signatures are checked before doing anything else with the data.
-        let secp = secp256k1::Secp256k1::new();
+        let mut secp = StackAllocatedSecp256k1::new();
+        let secp = secp.create_for_verifying()?;
         if self.signature1 != [0; 64] {
             let pubkey = secp256k1::PublicKey::from_slice(&self.pubkey1)
                 .map_err(|_| Error::InvalidPubkey1)?;
@@ -321,7 +327,7 @@ impl Header {
             .iter()
             .position(|&b| b == 0)
             .unwrap_or(self.version.len());
-        let version = std::str::from_utf8(&self.version[..first_zero])
+        let version = core::str::from_utf8(&self.version[..first_zero])
             .map_err(|_| Error::InvalidVersionUtf8)?;
         semver::Version::from_str(version).map_err(|_| Error::InvalidVersionSemver)?;
         if self.version[first_zero..].iter().any(|&b| b != 0) {
@@ -335,17 +341,19 @@ impl Header {
             .iter()
             .position(|&b| b == 0)
             .unwrap_or(self.date.len());
-        std::str::from_utf8(&self.date[..first_zero]).map_err(|_| Error::InvalidDateUtf8)?;
+        core::str::from_utf8(&self.date[..first_zero]).map_err(|_| Error::InvalidDateUtf8)?;
         if self.date[first_zero..].iter().any(|&b| b != 0) {
             return Err(Error::InvalidDateTrailingBytes);
         }
 
         // Verify that the firmware size is correct.
         let firmware_size = u32::from_le_bytes(self.firmware_size);
-        if firmware_size != num_bytes_read {
+        let actual_firmware_size =
+            u32::try_from(firmware.len()).map_err(|_| Error::FirmwareTooLong)?;
+        if firmware_size != actual_firmware_size {
             return Err(Error::InvalidFirmwareSize {
                 in_header: firmware_size,
-                actual: num_bytes_read,
+                actual: actual_firmware_size,
             });
         }
 
@@ -357,36 +365,46 @@ impl Header {
             return Err(Error::InvalidPubkey2);
         }
 
-        // Check that the reserved bytes are all zero.
-        if self.reserved.iter().any(|&b| b != 0) {
-            return Err(Error::InvalidReservedBytes);
-        }
-
         Ok(())
     }
 
     /// Set the firmware date field.
-    fn set_date(&mut self, time: chrono::DateTime<chrono::Utc>) {
-        let date = time.format("%b %d %Y").to_string();
-        let date = date.as_bytes();
-        if date.len() > self.date.len() {
-            panic!(
-                "date too long ({} > {}), should never happen",
-                date.len(),
-                self.date.len()
-            );
-        }
-        self.date[..date.len()].copy_from_slice(date);
+    fn set_date(&mut self, timestamp: u32) {
+        let date = chrono::DateTime::from_timestamp(timestamp.into(), 0).expect("before 2106");
+        let month = match date.month() {
+            1 => b"Jan",
+            2 => b"Feb",
+            3 => b"Mar",
+            4 => b"Apr",
+            5 => b"May",
+            6 => b"Jun",
+            7 => b"Jul",
+            8 => b"Aug",
+            9 => b"Sep",
+            10 => b"Oct",
+            11 => b"Nov",
+            12 => b"Dec",
+            _ => unreachable!(),
+        };
+        self.date[0..3].copy_from_slice(month);
+        self.date[3] = b' ';
+        let day = date.day();
+        self.date[4] = ascii_digit(day / 10);
+        self.date[5] = ascii_digit(day % 10);
+        self.date[6] = b' ';
+        let year: u32 = date.year().try_into().expect("year in timestamp is valid");
+        self.date[7] = ascii_digit((year / 1000) % 10);
+        self.date[8] = ascii_digit((year / 100) % 10);
+        self.date[9] = ascii_digit((year / 10) % 10);
+        self.date[10] = ascii_digit(year % 10);
     }
 
     /// Set the firmware version field.
-    fn set_version(&mut self, version: semver::Version) -> Result<(), Error> {
-        let version = version.to_string();
-        let version = version.as_bytes();
+    fn set_version(&mut self, version: &str) -> Result<(), Error> {
         if version.len() > self.version.len() {
             return Err(Error::VersionTooLong);
         }
-        self.version[..version.len()].copy_from_slice(version);
+        self.version[..version.len()].copy_from_slice(version.as_bytes());
         Ok(())
     }
 }
@@ -428,16 +446,39 @@ impl Magic {
     }
 }
 
-/// Read a fixed-size buffer from a reader.
-///
-/// If there are not enough bytes to read, `None` is returned.
-fn read<const N: usize>(r: &mut impl Read) -> Result<Option<[u8; N]>, Error> {
-    let mut buf = [0; N];
-    let n = r.read(&mut buf).map_err(Error::Read)?;
-    if n != buf.len() {
-        Ok(None)
-    } else {
-        Ok(Some(buf))
+fn ascii_digit(b: u32) -> u8 {
+    match b {
+        0 => b'0',
+        1 => b'1',
+        2 => b'2',
+        3 => b'3',
+        4 => b'4',
+        5 => b'5',
+        6 => b'6',
+        7 => b'7',
+        8 => b'8',
+        9 => b'9',
+        _ => unreachable!(),
+    }
+}
+
+struct StackAllocatedSecp256k1([secp256k1::ffi::types::AlignedType; 256]);
+
+impl StackAllocatedSecp256k1 {
+    fn new() -> Self {
+        Self([secp256k1::ffi::types::AlignedType::default(); 256])
+    }
+
+    fn create_for_signing(
+        &mut self,
+    ) -> Result<secp256k1::Secp256k1<secp256k1::SignOnlyPreallocated<'_>>, Error> {
+        secp256k1::Secp256k1::preallocated_gen_new(&mut self.0).map_err(Error::Secp256k1)
+    }
+
+    fn create_for_verifying(
+        &mut self,
+    ) -> Result<secp256k1::Secp256k1<secp256k1::VerifyOnlyPreallocated<'_>>, Error> {
+        secp256k1::Secp256k1::preallocated_gen_new(&mut self.0).map_err(Error::Secp256k1)
     }
 }
 
@@ -459,8 +500,8 @@ pub enum Error {
     InvalidVersionTrailingBytes,
     InvalidVersionUtf8,
     PubkeyAlreadyUsed,
-    Read(std::io::Error),
-    Serialize(std::io::Error),
+    Secp256k1(secp256k1::Error),
+    SerializeBufferTooSmall,
     Signature1Missing,
     Signature2Present,
     UnknownPubkey1,
@@ -468,8 +509,8 @@ pub enum Error {
     VersionTooLong,
 }
 
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::FirmwareTooLong => write!(f, "firmware too long"),
             Self::HeaderTooShort => write!(f, "header too short"),
@@ -492,8 +533,8 @@ impl std::fmt::Display for Error {
             }
             Self::InvalidVersionUtf8 => write!(f, "invalid version UTF-8 in header"),
             Self::PubkeyAlreadyUsed => write!(f, "attempting to sign with the same pubkey twice"),
-            Self::Read(e) => write!(f, "error while reading input: {e}"),
-            Self::Serialize(e) => write!(f, "serialize error: {e}"),
+            Self::Secp256k1(e) => write!(f, "secp256k1 error: {e}"),
+            Self::SerializeBufferTooSmall => write!(f, "buffer too small for serialization"),
             Self::Signature1Missing => write!(f, "signature1 missing in header"),
             Self::Signature2Present => {
                 write!(f, "signature2 already present in header")
@@ -504,5 +545,3 @@ impl std::fmt::Display for Error {
         }
     }
 }
-
-impl std::error::Error for Error {}

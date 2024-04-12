@@ -1,4 +1,4 @@
-use {super::*, std::io};
+use super::*;
 
 const MONTHS: [&[u8]; 12] = [
     b"Jan", b"Feb", b"Mar", b"Apr", b"May", b"Jun", b"Jul", b"Aug", b"Sep", b"Oct", b"Nov", b"Dec",
@@ -10,23 +10,23 @@ fn developer_singing() {
     let firmware = [0x01, 0x02, 0x03, 0x04];
     let secret_key =
         secp256k1::SecretKey::from_slice(&[0xcd; 32]).expect("32 bytes, within curve order");
+    let public_key = secp256k1::PublicKey::from_slice(&[
+        2, 185, 138, 127, 184, 204, 0, 112, 72, 98, 91, 100, 70, 173, 73, 161, 179, 167, 34, 223,
+        140, 28, 169, 117, 184, 113, 96, 2, 62, 20, 209, 144, 151,
+    ])
+    .unwrap();
     let header = Header::sign_new(
         Magic::Atsama5d27KeyOs,
-        semver::Version::new(1, 2, 3),
+        "1.2.3",
         firmware.len().try_into().unwrap(),
         Signer::Developer(&secret_key),
         &firmware[..],
     )
     .unwrap();
-    let mut buf = Vec::new();
+    let mut buf = [0u8; Header::SIZE + 4];
     header.serialize(&mut buf).unwrap();
-    io::copy(&mut &firmware[..], &mut buf).unwrap();
-    let parsed = Header::parse(
-        &buf[..],
-        &[secret_key.public_key(&secp256k1::Secp256k1::new())],
-    )
-    .unwrap()
-    .unwrap();
+    buf[Header::SIZE..].copy_from_slice(&firmware);
+    let parsed = Header::parse(&buf[..], &[public_key]).unwrap().unwrap();
 
     // The parsed header is the same as the serialized header.
     assert_eq!(header.magic(), parsed.magic());
@@ -89,25 +89,30 @@ fn trusted_singing() {
     let firmware = [0x01, 0x02, 0x03, 0x04];
     let secret_key1 =
         secp256k1::SecretKey::from_slice(&[0xcd; 32]).expect("32 bytes, within curve order");
+    let public_key1 = secp256k1::PublicKey::from_slice(&[
+        2, 185, 138, 127, 184, 204, 0, 112, 72, 98, 91, 100, 70, 173, 73, 161, 179, 167, 34, 223,
+        140, 28, 169, 117, 184, 113, 96, 2, 62, 20, 209, 144, 151,
+    ])
+    .unwrap();
     let secret_key2 =
         secp256k1::SecretKey::from_slice(&[0xce; 32]).expect("32 bytes, within curve order");
+    let public_key2 = secp256k1::PublicKey::from_slice(&[
+        3, 102, 16, 204, 9, 96, 143, 51, 174, 250, 181, 32, 150, 5, 87, 7, 224, 45, 246, 160, 105,
+        67, 84, 246, 158, 200, 197, 141, 128, 31, 161, 255, 163,
+    ])
+    .unwrap();
     let mut header = Header::sign_new(
         Magic::Atsama5d27KeyOs,
-        semver::Version::parse("1.2.3-alpha1").unwrap(),
+        "1.2.3-alpha1",
         firmware.len().try_into().unwrap(),
         Signer::Trusted(&secret_key1),
         &firmware[..],
     )
     .unwrap();
-    let mut buf = Vec::new();
+    let mut buf = [0u8; Header::SIZE + 4];
     header.serialize(&mut buf).unwrap();
-    io::copy(&mut &firmware[..], &mut buf).unwrap();
-    let parsed = Header::parse(
-        &buf[..],
-        &[secret_key1.public_key(&secp256k1::Secp256k1::new())],
-    )
-    .unwrap()
-    .unwrap();
+    buf[Header::SIZE..].copy_from_slice(&firmware);
+    let parsed = Header::parse(&buf[..], &[public_key1]).unwrap().unwrap();
 
     // The parsed header is the same as the serialized header.
     assert_eq!(header.magic(), parsed.magic());
@@ -167,18 +172,12 @@ fn trusted_singing() {
     // Add second signature.
     header.add_second_signature(&secret_key2).unwrap();
 
-    let mut buf = Vec::new();
+    let mut buf = [0u8; Header::SIZE + 4];
     header.serialize(&mut buf).unwrap();
-    io::copy(&mut &firmware[..], &mut buf).unwrap();
-    let parsed = Header::parse(
-        &buf[..],
-        &[
-            secret_key1.public_key(&secp256k1::Secp256k1::new()),
-            secret_key2.public_key(&secp256k1::Secp256k1::new()),
-        ],
-    )
-    .unwrap()
-    .unwrap();
+    buf[Header::SIZE..].copy_from_slice(&firmware);
+    let parsed = Header::parse(&buf[..], &[public_key1, public_key2])
+        .unwrap()
+        .unwrap();
 
     // The parsed header is the same as the serialized header.
     assert_eq!(header.magic(), parsed.magic());
