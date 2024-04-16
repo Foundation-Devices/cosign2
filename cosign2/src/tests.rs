@@ -26,7 +26,9 @@ fn developer_singing() {
     let mut buf = [0u8; Header::SIZE + 4];
     header.serialize(&mut buf).unwrap();
     buf[Header::SIZE..].copy_from_slice(&firmware);
-    let parsed = Header::parse(&buf[..], &[public_key]).unwrap().unwrap();
+    let parsed = Header::parse(&buf[..]).unwrap().unwrap();
+    let hash = parsed.hash(&firmware);
+    parsed.verify(&hash, &[public_key]).unwrap();
 
     // The parsed header is the same as the serialized header.
     assert_eq!(header.magic(), parsed.magic());
@@ -34,16 +36,16 @@ fn developer_singing() {
     assert_eq!(header.date(), parsed.date());
     assert_eq!(header.version(), parsed.version());
     assert_eq!(header.firmware_size(), parsed.firmware_size());
-    assert_eq!(header.pubkey1(), parsed.pubkey1());
-    assert_eq!(header.signature1(), parsed.signature1());
-    assert_eq!(header.pubkey2(), parsed.pubkey2());
-    assert_eq!(header.signature2(), parsed.signature2());
+    assert_eq!(header.pubkey1().unwrap(), parsed.pubkey1().unwrap());
+    assert_eq!(header.signature1().unwrap(), parsed.signature1().unwrap());
+    assert_eq!(header.pubkey2().unwrap(), parsed.pubkey2().unwrap());
+    assert_eq!(header.signature2().unwrap(), parsed.signature2().unwrap());
 
     // The signing procedure filled in the correct field.
-    assert!(header.pubkey1().is_none());
-    assert!(header.signature1().is_none());
-    assert!(header.pubkey2().is_some());
-    assert!(header.signature2().is_some());
+    assert!(header.pubkey1().unwrap().is_none());
+    assert!(header.signature1().unwrap().is_none());
+    assert!(header.pubkey2().unwrap().is_some());
+    assert!(header.signature2().unwrap().is_some());
 
     // The binary representation is correct.
     assert_eq!(buf.len(), Header::SIZE + firmware.len());
@@ -112,7 +114,9 @@ fn trusted_singing() {
     let mut buf = [0u8; Header::SIZE + 4];
     header.serialize(&mut buf).unwrap();
     buf[Header::SIZE..].copy_from_slice(&firmware);
-    let parsed = Header::parse(&buf[..], &[public_key1]).unwrap().unwrap();
+    let parsed = Header::parse(&buf[..]).unwrap().unwrap();
+    let hash = parsed.hash(&firmware);
+    parsed.verify(&hash, &[public_key1]).unwrap();
 
     // The parsed header is the same as the serialized header.
     assert_eq!(header.magic(), parsed.magic());
@@ -120,16 +124,16 @@ fn trusted_singing() {
     assert_eq!(header.date(), parsed.date());
     assert_eq!(header.version(), parsed.version());
     assert_eq!(header.firmware_size(), parsed.firmware_size());
-    assert_eq!(header.pubkey1(), parsed.pubkey1());
-    assert_eq!(header.signature1(), parsed.signature1());
-    assert_eq!(header.pubkey2(), parsed.pubkey2());
-    assert_eq!(header.signature2(), parsed.signature2());
+    assert_eq!(header.pubkey1().unwrap(), parsed.pubkey1().unwrap());
+    assert_eq!(header.signature1().unwrap(), parsed.signature1().unwrap());
+    assert_eq!(header.pubkey2().unwrap(), parsed.pubkey2().unwrap());
+    assert_eq!(header.signature2().unwrap(), parsed.signature2().unwrap());
 
     // The signing procedure filled in the correct field.
-    assert!(header.pubkey1().is_some());
-    assert!(header.signature1().is_some());
-    assert!(header.pubkey2().is_none());
-    assert!(header.signature2().is_none());
+    assert!(header.pubkey1().unwrap().is_some());
+    assert!(header.signature1().unwrap().is_some());
+    assert!(header.pubkey2().unwrap().is_none());
+    assert!(header.signature2().unwrap().is_none());
 
     // The binary representation is correct.
     assert_eq!(buf.len(), Header::SIZE + firmware.len());
@@ -170,14 +174,13 @@ fn trusted_singing() {
     assert!(&buf[240..Header::SIZE].iter().all(|&b| b == 0));
 
     // Add second signature.
-    header.add_second_signature(&secret_key2).unwrap();
+    header.add_second_signature(&hash, &secret_key2).unwrap();
 
     let mut buf = [0u8; Header::SIZE + 4];
     header.serialize(&mut buf).unwrap();
     buf[Header::SIZE..].copy_from_slice(&firmware);
-    let parsed = Header::parse(&buf[..], &[public_key1, public_key2])
-        .unwrap()
-        .unwrap();
+    let parsed = Header::parse(&buf[..]).unwrap().unwrap();
+    parsed.verify(&hash, &[public_key1, public_key2]).unwrap();
 
     // The parsed header is the same as the serialized header.
     assert_eq!(header.magic(), parsed.magic());
@@ -185,16 +188,16 @@ fn trusted_singing() {
     assert_eq!(header.date(), parsed.date());
     assert_eq!(header.version(), parsed.version());
     assert_eq!(header.firmware_size(), parsed.firmware_size());
-    assert_eq!(header.pubkey1(), parsed.pubkey1());
-    assert_eq!(header.signature1(), parsed.signature1());
-    assert_eq!(header.pubkey2(), parsed.pubkey2());
-    assert_eq!(header.signature2(), parsed.signature2());
+    assert_eq!(header.pubkey1().unwrap(), parsed.pubkey1().unwrap());
+    assert_eq!(header.signature1().unwrap(), parsed.signature1().unwrap());
+    assert_eq!(header.pubkey2().unwrap(), parsed.pubkey2().unwrap());
+    assert_eq!(header.signature2().unwrap(), parsed.signature2().unwrap());
 
     // The signing procedure filled in the correct fields.
-    assert!(header.pubkey1().is_some());
-    assert!(header.signature1().is_some());
-    assert!(header.pubkey2().is_some());
-    assert!(header.signature2().is_some());
+    assert!(header.pubkey1().unwrap().is_some());
+    assert!(header.signature1().unwrap().is_some());
+    assert!(header.pubkey2().unwrap().is_some());
+    assert!(header.signature2().unwrap().is_some());
 
     // The binary representation is correct.
     assert_eq!(buf.len(), Header::SIZE + firmware.len());

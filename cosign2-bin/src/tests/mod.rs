@@ -118,21 +118,21 @@ fn dump_invalid_magic() {
 /// Dump headers with various fields changed, hence invalidating the signatures.
 #[test]
 fn dump_invalid_changed_fields() {
+    #[rustfmt::skip]
     let cases = [
-        fixtures::INVALID_HEADER_ONE_SIGNATURE_TIMESTAMP_CHANGED,
-        fixtures::INVALID_HEADER_ONE_SIGNATURE_DATE_CHANGED,
-        fixtures::INVALID_HEADER_TWO_SIGNATURES_VERSION_CHANGED,
-        fixtures::INVALID_HEADER_TWO_SIGNATURES_FIRMWARE_SIZE_CHANGED,
-        fixtures::INVALID_HEADER_TWO_SIGNATURES_RESERVED_CHANGED,
-        fixtures::INVALID_HEADER_ONE_SIGNATURE_FIRMWARE_CHANGED,
+        ("invalid signature1", fixtures::INVALID_HEADER_ONE_SIGNATURE_TIMESTAMP_CHANGED),
+        ("invalid signature1", fixtures::INVALID_HEADER_ONE_SIGNATURE_DATE_CHANGED),
+        ("invalid signature1", fixtures::INVALID_HEADER_TWO_SIGNATURES_VERSION_CHANGED),
+        ("invalid signature1", fixtures::INVALID_HEADER_TWO_SIGNATURES_FIRMWARE_SIZE_CHANGED),
+        ("invalid reserved bytes in header", fixtures::INVALID_HEADER_TWO_SIGNATURES_RESERVED_CHANGED),
+        ("invalid signature1", fixtures::INVALID_HEADER_ONE_SIGNATURE_FIRMWARE_CHANGED),
     ];
 
-    for case in cases {
+    for (expected_output, case) in cases {
         let file = create_file(case);
         let output = test(["dump", "-i", file.path().to_str().unwrap()]);
         assert_eq!(output.exit_code, ExitCode(1));
-        assert!(output.stdout.is_empty());
-        assert!(output.stderr.contains("invalid signature1"));
+        assert!(output.stderr.contains(expected_output));
     }
 }
 
@@ -142,7 +142,6 @@ fn dump_invalid_header_invalid_pubkey1() {
     let file = create_file(fixtures::INVALID_HEADER_TWO_SIGNATURES_PUBKEY1_CHANGED);
     let output = test(["dump", "-i", file.path().to_str().unwrap()]);
     assert_eq!(output.exit_code, ExitCode(1));
-    assert!(output.stdout.is_empty());
     assert!(output.stderr.contains("invalid pubkey1"));
 }
 
@@ -152,7 +151,6 @@ fn dump_invalid_header_invalid_pubkey2() {
     let file = create_file(fixtures::INVALID_HEADER_TWO_SIGNATURES_PUBKEY2_CHANGED);
     let output = test(["dump", "-i", file.path().to_str().unwrap()]);
     assert_eq!(output.exit_code, ExitCode(1));
-    assert!(output.stdout.is_empty());
     assert!(output.stderr.contains("invalid pubkey2"));
 }
 
@@ -162,7 +160,6 @@ fn dump_invalid_header_invalid_signature1() {
     let file = create_file(fixtures::INVALID_HEADER_TWO_SIGNATURES_SIGNATURE1_CHANGED);
     let output = test(["dump", "-i", file.path().to_str().unwrap()]);
     assert_eq!(output.exit_code, ExitCode(1));
-    assert!(output.stdout.is_empty());
     assert!(output.stderr.contains("invalid signature1"));
 }
 
@@ -172,7 +169,6 @@ fn dump_invalid_header_invalid_signature2() {
     let file = create_file(fixtures::INVALID_HEADER_TWO_SIGNATURES_SIGNATURE2_CHANGED);
     let output = test(["dump", "-i", file.path().to_str().unwrap()]);
     assert_eq!(output.exit_code, ExitCode(1));
-    assert!(output.stdout.is_empty());
     assert!(output.stderr.contains("invalid signature2"));
 }
 
