@@ -1,8 +1,10 @@
 use {
     colored::Colorize,
+    sha2::Digest,
     std::{
         ffi::OsString,
         io::{Read, Seek, Write},
+        mem,
         path::{Path, PathBuf},
     },
 };
@@ -52,7 +54,12 @@ where
                 .map_err(Error::OpenInputFile)?
                 .read_to_end(&mut input_buf)
                 .map_err(Error::ReadInputFile)?;
-            match cosign2::Header::parse(&input_buf, &[])? {
+            match cosign2::Header::parse(
+                &input_buf,
+                &[],
+                &mut Sha256::default(),
+                &Secp256k1Verify::default(),
+            )? {
                 Some(header) => {
                     let magic = match header.magic() {
                         cosign2::Magic::Atsama5d27KeyOs => "atsama5d27-keyos",
@@ -65,7 +72,7 @@ where
                         &mut stdout,
                         "{:10} {timestamp} ({})",
                         "timestamp".bold(),
-                        header.timestamp()
+                        header.timestamp(),
                     )
                     .map_err(Error::Stdout)?;
                     writeln!(&mut stdout, "{:10} {}", "date".bold(), header.date())
@@ -78,63 +85,51 @@ where
                         &mut stdout,
                         "{:10} {human_size} ({})",
                         "size".bold(),
-                        header.firmware_size()
+                        header.firmware_size(),
                     )
                     .map_err(Error::Stdout)?;
                     writeln!(
                         &mut stdout,
                         "{:10} {}",
                         "pubkey1".bold(),
-                        match header.pubkey1() {
-                            Some(pubkey) => pubkey.to_string(),
-                            None => "0".repeat(66),
-                        }
+                        hex::encode(header.pubkey1()),
                     )
                     .map_err(Error::Stdout)?;
-                    let signature1 = match header.signature1() {
-                        Some(signature) => signature.serialize_compact(),
-                        None => [0; 64],
-                    };
+                    let signature1 = header.signature1();
                     writeln!(
                         &mut stdout,
                         "{:10} {}",
                         "signature1".bold(),
-                        hex::encode(&signature1[..32])
+                        hex::encode(&signature1[..32]),
                     )
                     .map_err(Error::Stdout)?;
                     writeln!(
                         &mut stdout,
                         "{} {}",
                         " ".repeat(10),
-                        hex::encode(&signature1[32..])
+                        hex::encode(&signature1[32..]),
                     )
                     .map_err(Error::Stdout)?;
                     writeln!(
                         &mut stdout,
                         "{:10} {}",
                         "pubkey2".bold(),
-                        match header.pubkey2() {
-                            Some(pubkey) => pubkey.to_string(),
-                            None => "0".repeat(66),
-                        }
+                        hex::encode(header.pubkey2()),
                     )
                     .map_err(Error::Stdout)?;
-                    let signature2 = match header.signature2() {
-                        Some(signature) => signature.serialize_compact(),
-                        None => [0; 64],
-                    };
+                    let signature2 = header.signature2();
                     writeln!(
                         &mut stdout,
                         "{:10} {}",
                         "signature2".bold(),
-                        hex::encode(&signature2[..32])
+                        hex::encode(&signature2[..32]),
                     )
                     .map_err(Error::Stdout)?;
                     writeln!(
                         &mut stdout,
                         "{} {}",
                         " ".repeat(10),
-                        hex::encode(&signature2[32..])
+                        hex::encode(&signature2[32..]),
                     )
                     .map_err(Error::Stdout)?;
                 }
@@ -163,6 +158,8 @@ where
             if !known_pubkeys.is_empty() && !known_pubkeys.contains(&pubkey) {
                 return Err(Error::UnknownSigner);
             }
+
+            let known_pubkeys: Vec<_> = known_pubkeys.into_iter().map(|k| k.serialize()).collect();
 
             let magic = target.map(|t| match t {
                 args::Target::Atsama5d27KeyOs => cosign2::Magic::Atsama5d27KeyOs,
@@ -201,47 +198,53 @@ where
                 .read_to_end(&mut input_buf)
                 .map_err(Error::ReadInputFile)?;
 
-            let (header, mut firmware) =
-                match cosign2::Header::parse(&input_buf, known_pubkeys.as_slice())? {
-                    // If a header is present, add a second signature.
-                    Some(mut header) => {
-                        match version {
-                            Some(version) if header.version() != version.to_string() => {
-                                return Err(Error::VersionMismatch {
-                                    header: header.version().to_owned(),
-                                    expected: version.to_string(),
-                                });
-                            }
-                            _ => {}
+            let (header, mut firmware) = match cosign2::Header::parse(
+                &input_buf,
+                known_pubkeys.as_slice(),
+                &mut Sha256::default(),
+                &Secp256k1Verify::default(),
+            )? {
+                // If a header is present, add a second signature.
+                Some(mut header) => {
+                    match version {
+                        Some(version) if header.version() != version.to_string() => {
+                            return Err(Error::VersionMismatch {
+                                header: header.version().to_owned(),
+                                expected: version.to_string(),
+                            });
                         }
-                        match magic {
-                            Some(magic) if header.magic() != magic => {
-                                return Err(Error::MagicMismatch {
-                                    header: header.magic(),
-                                    expected: magic,
-                                });
-                            }
-                            _ => {}
+                        _ => {}
+                    }
+                    match magic {
+                        Some(magic) if header.magic() != magic => {
+                            return Err(Error::MagicMismatch {
+                                header: header.magic(),
+                                expected: magic,
+                            });
                         }
-                        header.add_second_signature(&secret)?;
-                        (header, &input_buf[cosign2::Header::SIZE..])
+                        _ => {}
                     }
-                    // If no header is present, create and sign a new header.
-                    None => {
-                        let header = cosign2::Header::sign_new(
-                            magic.ok_or(Error::TargetMissing)?,
-                            &version.ok_or(Error::VersionMissing)?.to_string(),
-                            chrono::Utc::now().timestamp().try_into().expect("not 2106"),
-                            if developer {
-                                cosign2::Signer::Developer(&secret)
-                            } else {
-                                cosign2::Signer::Trusted(&secret)
-                            },
-                            &input_buf,
-                        )?;
-                        (header, input_buf.as_slice())
-                    }
-                };
+                    header.add_second_signature(&Secp256k1Sign::new(secret))?;
+                    (header, &input_buf[cosign2::Header::SIZE..])
+                }
+                // If no header is present, create and sign a new header.
+                None => {
+                    let header = cosign2::Header::sign_new(
+                        magic.ok_or(Error::TargetMissing)?,
+                        &version.ok_or(Error::VersionMissing)?.to_string(),
+                        chrono::Utc::now().timestamp().try_into().expect("not 2106"),
+                        if developer {
+                            cosign2::Signer::Developer
+                        } else {
+                            cosign2::Signer::Trusted
+                        },
+                        &input_buf,
+                        &mut Sha256::default(),
+                        &Secp256k1Sign::new(secret),
+                    )?;
+                    (header, input_buf.as_slice())
+                }
+            };
 
             // Write the signed header and firmware to output file.
             let mut header_buf = [0u8; cosign2::Header::SIZE];
@@ -271,12 +274,79 @@ where
                 .file()
                 .read_to_end(&mut output_buf)
                 .map_err(Error::ReadOutputFile)?;
-            cosign2::Header::parse(&output_buf, &known_pubkeys)
-                .map_err(Error::ParseOutputFile)?
-                .ok_or(Error::ParseOutputFileNoHeader)?;
+            cosign2::Header::parse(
+                &output_buf,
+                &known_pubkeys,
+                &mut Sha256::default(),
+                &Secp256k1Verify::default(),
+            )
+            .map_err(Error::ParseOutputFile)?
+            .ok_or(Error::ParseOutputFileNoHeader)?;
         }
     }
     Ok(())
+}
+
+#[derive(Debug)]
+struct Secp256k1Sign {
+    secp256k1: secp256k1::Secp256k1<secp256k1::All>,
+    key: secp256k1::SecretKey,
+}
+
+impl Secp256k1Sign {
+    fn new(key: secp256k1::SecretKey) -> Self {
+        Self {
+            secp256k1: secp256k1::Secp256k1::new(),
+            key,
+        }
+    }
+}
+
+impl cosign2::Secp256k1Sign for Secp256k1Sign {
+    fn sign_ecdsa(&self, msg: [u8; 32]) -> [u8; 64] {
+        self.secp256k1
+            .sign_ecdsa(&secp256k1::Message::from_digest(msg), &self.key)
+            .serialize_compact()
+    }
+
+    fn pubkey(&self) -> [u8; 33] {
+        self.key.public_key(&self.secp256k1).serialize()
+    }
+}
+
+#[derive(Debug, Default)]
+struct Secp256k1Verify(secp256k1::Secp256k1<secp256k1::All>);
+
+impl cosign2::Secp256k1Verify for Secp256k1Verify {
+    fn verify_ecdsa(&self, msg: [u8; 32], signature: [u8; 64], pubkey: [u8; 33]) -> bool {
+        let Ok(pubkey) = secp256k1::PublicKey::from_slice(&pubkey) else {
+            return false;
+        };
+        self.0
+            .verify_ecdsa(
+                &secp256k1::Message::from_digest(msg),
+                &secp256k1::ecdsa::Signature::from_compact(&signature).expect("64 bytes"),
+                &pubkey,
+            )
+            .is_ok()
+    }
+}
+
+#[derive(Debug, Default)]
+struct Sha256(sha2::Sha256);
+
+impl cosign2::Sha256 for Sha256 {
+    fn start(&mut self) {
+        self.0 = sha2::Sha256::new();
+    }
+
+    fn update(&mut self, data: &[u8]) {
+        self.0.update(data);
+    }
+
+    fn finish(&mut self) -> [u8; 32] {
+        mem::take(&mut self.0).finalize().into()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -312,6 +382,23 @@ impl OutputFile {
     fn is_in_place(&self) -> bool {
         matches!(self, OutputFile::InPlace(_))
     }
+}
+
+fn move_file(
+    mut from_file: &std::fs::File,
+    from_path: &Path,
+    mut to_file: &std::fs::File,
+    to_path: &Path,
+) -> std::io::Result<()> {
+    if std::fs::rename(from_path, to_path).is_err() {
+        // If rename fails, the files might be on different filesystems.
+        // Fall back to copying and removing the original file.
+        from_file.seek(std::io::SeekFrom::Start(0))?;
+        to_file.seek(std::io::SeekFrom::Start(0))?;
+        std::io::copy(&mut from_file, &mut to_file)?;
+        std::fs::remove_file(from_path)?;
+    }
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -409,20 +496,3 @@ impl std::fmt::Display for Error {
 }
 
 impl std::error::Error for Error {}
-
-fn move_file(
-    mut from_file: &std::fs::File,
-    from_path: &Path,
-    mut to_file: &std::fs::File,
-    to_path: &Path,
-) -> std::io::Result<()> {
-    if std::fs::rename(from_path, to_path).is_err() {
-        // If rename fails, the files might be on different filesystems.
-        // Fall back to copying and removing the original file.
-        from_file.seek(std::io::SeekFrom::Start(0))?;
-        to_file.seek(std::io::SeekFrom::Start(0))?;
-        std::io::copy(&mut from_file, &mut to_file)?;
-        std::fs::remove_file(from_path)?;
-    }
-    Ok(())
-}

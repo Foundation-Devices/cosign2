@@ -143,7 +143,7 @@ fn dump_invalid_header_invalid_pubkey1() {
     let output = test(["dump", "-i", file.path().to_str().unwrap()]);
     assert_eq!(output.exit_code, ExitCode(1));
     assert!(output.stdout.is_empty());
-    assert!(output.stderr.contains("invalid pubkey1"));
+    assert!(output.stderr.contains("invalid signature1"));
 }
 
 /// Dump header with the second pubkey changed.
@@ -153,7 +153,7 @@ fn dump_invalid_header_invalid_pubkey2() {
     let output = test(["dump", "-i", file.path().to_str().unwrap()]);
     assert_eq!(output.exit_code, ExitCode(1));
     assert!(output.stdout.is_empty());
-    assert!(output.stderr.contains("invalid pubkey2"));
+    assert!(output.stderr.contains("invalid signature2"));
 }
 
 /// Dump header with the first signature changed.

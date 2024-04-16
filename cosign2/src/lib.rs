@@ -1,6 +1,6 @@
 #![no_std]
 
-use {chrono::Datelike, core::str::FromStr, sha2::Digest};
+use {chrono::Datelike, core::str::FromStr};
 
 #[cfg(test)]
 mod tests;
@@ -17,7 +17,34 @@ pub struct Header {
     pubkey2: [u8; 33],
     signature2: [u8; 64],
     /// Hash of the header and firmware code.
-    hash: secp256k1::Message,
+    hash: [u8; 32],
+}
+
+/// SHA-256 hash function.
+pub trait Sha256 {
+    /// Start a new hash.
+    fn start(&mut self);
+
+    /// Update the hash with new data.
+    fn update(&mut self, data: &[u8]);
+
+    /// Finish the hash and return the result.
+    fn finish(&mut self) -> [u8; 32];
+}
+
+/// ECDSA secp256k1 signing.
+pub trait Secp256k1Sign {
+    /// Sign a message on the secp256k1 curve.
+    fn sign_ecdsa(&self, msg: [u8; 32]) -> [u8; 64];
+
+    /// Get the public key used for signing.
+    fn pubkey(&self) -> [u8; 33];
+}
+
+/// ECDSA secp256k1 verification.
+pub trait Secp256k1Verify {
+    /// Verify an ECDSA signature against the given public key.
+    fn verify_ecdsa(&self, msg: [u8; 32], signature: [u8; 64], pubkey: [u8; 33]) -> bool;
 }
 
 impl Header {
@@ -66,43 +93,23 @@ impl Header {
     }
 
     /// Public key of the first signer.
-    ///
-    /// Returns `None` if the pubkey is not present (zeroed out).
-    pub fn pubkey1(&self) -> Option<secp256k1::PublicKey> {
-        if self.pubkey1 == [0; 33] {
-            return None;
-        }
-        Some(secp256k1::PublicKey::from_slice(&self.pubkey1).expect("validated"))
+    pub fn pubkey1(&self) -> [u8; 33] {
+        self.pubkey1
     }
 
     /// First signature.
-    ///
-    /// Returns `None` if the signature is not present (zeroed out).
-    pub fn signature1(&self) -> Option<secp256k1::ecdsa::Signature> {
-        if self.signature1 == [0; 64] {
-            return None;
-        }
-        Some(secp256k1::ecdsa::Signature::from_compact(&self.signature1).expect("validated"))
+    pub fn signature1(&self) -> [u8; 64] {
+        self.signature1
     }
 
     /// Public key of the second signer.
-    ///
-    /// Returns `None` if the pubkey is not present (zeroed out).
-    pub fn pubkey2(&self) -> Option<secp256k1::PublicKey> {
-        if self.pubkey2 == [0; 33] {
-            return None;
-        }
-        Some(secp256k1::PublicKey::from_slice(&self.pubkey2).expect("validated"))
+    pub fn pubkey2(&self) -> [u8; 33] {
+        self.pubkey2
     }
 
     /// Second signature.
-    ///
-    /// Returns `None` if the signature is not present (zeroed out).
-    pub fn signature2(&self) -> Option<secp256k1::ecdsa::Signature> {
-        if self.signature2 == [0; 64] {
-            return None;
-        }
-        Some(secp256k1::ecdsa::Signature::from_compact(&self.signature2).expect("validated"))
+    pub fn signature2(&self) -> [u8; 64] {
+        self.signature2
     }
 
     /// Create a new header and sign it.
@@ -110,8 +117,10 @@ impl Header {
         magic: Magic,
         version: &str,
         timestamp: u32,
-        signer: Signer<'_>,
+        signer: Signer,
         firmware: &[u8],
+        sha: &mut impl Sha256,
+        secp: &impl Secp256k1Sign,
     ) -> Result<Self, Error> {
         // Validate the version string.
         semver::Version::from_str(version).map_err(|_| Error::InvalidVersionSemver)?;
@@ -128,31 +137,26 @@ impl Header {
             signature1: [0; 64],
             pubkey2: [0; 33],
             signature2: [0; 64],
-            hash: secp256k1::Message::from_digest([0; 32]),
+            hash: [0; 32],
         };
         header.set_date(timestamp);
         header.set_version(version)?;
-        header.hash_and_validate(&[0; Self::RESERVED], firmware, &[])?;
+        header.hash(&[0; Self::RESERVED], firmware, sha);
+        header.validate_fields(firmware)?;
 
         // Sign the header.
-        let mut secp = StackAllocatedSecp256k1::new();
-        let secp = secp.create_for_signing()?;
         match signer {
-            Signer::Trusted(key) => {
+            Signer::Trusted => {
                 // Trusted key is used, so both first and second signatures need to be filled
                 // in. This key is used for the first signature.
-                let pubkey = secp256k1::PublicKey::from_secret_key(&secp, key);
-                let signature = secp.sign_ecdsa(&header.hash, key);
-                header.pubkey1 = pubkey.serialize();
-                header.signature1 = signature.serialize_compact();
+                header.pubkey1 = secp.pubkey();
+                header.signature1 = secp.sign_ecdsa(header.hash);
             }
-            Signer::Developer(key) => {
+            Signer::Developer => {
                 // Developer key is used, so only the second signature is filled in.
                 // The first signature is left empty (zeroed out).
-                let pubkey = secp256k1::PublicKey::from_secret_key(&secp, key);
-                let signature = secp.sign_ecdsa(&header.hash, key);
-                header.pubkey2 = pubkey.serialize();
-                header.signature2 = signature.serialize_compact();
+                header.pubkey2 = secp.pubkey();
+                header.signature2 = secp.sign_ecdsa(header.hash);
             }
         }
 
@@ -168,7 +172,9 @@ impl Header {
     /// If the header is missing, `None` is returned.
     pub fn parse(
         data: &[u8],
-        known_signers: &[secp256k1::PublicKey],
+        known_signers: &[[u8; 33]],
+        sha: &mut impl Sha256,
+        secp: &impl Secp256k1Verify,
     ) -> Result<Option<Self>, Error> {
         if data.len() < 4 {
             return Ok(None);
@@ -212,10 +218,13 @@ impl Header {
             signature1,
             pubkey2,
             signature2,
-            hash: secp256k1::Message::from_digest([0; 32]),
+            hash: [0; 32],
         };
 
-        header.hash_and_validate(reserved, &data[Self::SIZE..], known_signers)?;
+        let firmware = &data[Self::SIZE..];
+        header.hash(reserved, firmware, sha);
+        header.verify_signatures(known_signers, secp)?;
+        header.validate_fields(firmware)?;
 
         // Check that the reserved bytes are all zero.
         if reserved.iter().any(|&b| b != 0) {
@@ -250,75 +259,68 @@ impl Header {
     ///
     /// The first signature must be present, and the second signature must be
     /// missing, otherwise an error is returned.
-    pub fn add_second_signature(&mut self, key: &secp256k1::SecretKey) -> Result<(), Error> {
+    pub fn add_second_signature(&mut self, secp: &impl Secp256k1Sign) -> Result<(), Error> {
         if self.signature2 != [0; 64] {
             return Err(Error::Signature2Present);
         }
         if self.signature1 == [0; 64] {
             return Err(Error::Signature1Missing);
         }
-        let mut secp = StackAllocatedSecp256k1::new();
-        let secp = secp.create_for_signing()?;
-        if self.pubkey1 == key.public_key(&secp).serialize() {
+        let pubkey = secp.pubkey();
+        if self.pubkey1 == pubkey {
             return Err(Error::PubkeyAlreadyUsed);
         }
-        self.pubkey2 = key.public_key(&secp).serialize();
-        self.signature2 = secp.sign_ecdsa(&self.hash, key).serialize_compact();
+        self.pubkey2 = pubkey;
+        self.signature2 = secp.sign_ecdsa(self.hash);
         Ok(())
     }
 
-    /// Hash up the header and firmware code and validate the header, including
-    /// signature checks over the hash.
-    fn hash_and_validate(
-        &mut self,
-        reserved: &[u8],
-        firmware: &[u8],
-        known_signers: &[secp256k1::PublicKey],
-    ) -> Result<(), Error> {
-        // Calculate the hash of the header and firmware code.
-        let mut hasher = sha2::Sha256::new();
+    /// Hash up the header and store it in the `hash` field.
+    fn hash(&mut self, reserved: &[u8], firmware: &[u8], sha: &mut impl Sha256) {
+        sha.start();
         // First hash the header itself, excluding only the signatures and pubkeys.
-        hasher.update(self.magic);
-        hasher.update(self.timestamp);
-        hasher.update(self.date);
-        hasher.update(self.version);
-        hasher.update(self.firmware_size);
+        sha.update(&self.magic);
+        sha.update(&self.timestamp);
+        sha.update(&self.date);
+        sha.update(&self.version);
+        sha.update(&self.firmware_size);
         // Include the reserved bytes in the hash.
-        hasher.update(reserved);
+        sha.update(reserved);
         // Hash the firmware code.
-        hasher.update(firmware);
+        sha.update(firmware);
         // Do a second hash to avoid length extension attacks.
-        self.hash = secp256k1::Message::from_digest_slice(&sha2::Sha256::digest(hasher.finalize()))
-            .expect("32 bytes");
+        let hash = sha.finish();
+        sha.start();
+        sha.update(&hash);
+        self.hash = sha.finish();
+    }
 
-        // The signatures are checked before doing anything else with the data.
-        let mut secp = StackAllocatedSecp256k1::new();
-        let secp = secp.create_for_verifying()?;
+    fn verify_signatures(
+        &mut self,
+        known_signers: &[[u8; 33]],
+        secp: &impl Secp256k1Verify,
+    ) -> Result<(), Error> {
         if self.signature1 != [0; 64] {
-            let pubkey = secp256k1::PublicKey::from_slice(&self.pubkey1)
-                .map_err(|_| Error::InvalidPubkey1)?;
-            if !known_signers.is_empty() && !known_signers.contains(&pubkey) {
+            if !known_signers.is_empty() && !known_signers.contains(&self.pubkey1) {
                 return Err(Error::UnknownPubkey1);
             }
-            let signature = secp256k1::ecdsa::Signature::from_compact(&self.signature1)
-                .map_err(|_| Error::InvalidSignature1)?;
-            if pubkey.verify(&secp, &self.hash, &signature).is_err() {
+            if !secp.verify_ecdsa(self.hash, self.signature1, self.pubkey1) {
                 return Err(Error::InvalidSignature1);
             }
         }
         if self.signature2 != [0; 64] {
-            let pubkey = secp256k1::PublicKey::from_slice(&self.pubkey2)
-                .map_err(|_| Error::InvalidPubkey2)?;
-            if !known_signers.is_empty() && !known_signers.contains(&pubkey) {
+            if !known_signers.is_empty() && !known_signers.contains(&self.pubkey2) {
                 return Err(Error::UnknownPubkey2);
             }
-            let signature = secp256k1::ecdsa::Signature::from_compact(&self.signature2)
-                .map_err(|_| Error::InvalidSignature2)?;
-            if pubkey.verify(&secp, &self.hash, &signature).is_err() {
+            if !secp.verify_ecdsa(self.hash, self.signature2, self.pubkey2) {
                 return Err(Error::InvalidSignature2);
             }
         }
+        Ok(())
+    }
 
+    /// Validate the fields in the header.
+    fn validate_fields(&mut self, firmware: &[u8]) -> Result<(), Error> {
         // Validate that the version string is UTF-8 formatted according to SemVer, and
         // that the unused bytes are all zero.
         let first_zero = self
@@ -409,16 +411,16 @@ impl Header {
 }
 
 /// Who is signing the firmware.
-pub enum Signer<'a> {
-    /// Trusted key from Foundation Devices, Inc.
+pub enum Signer {
+    /// Signed by a trusted identity from Foundation Devices, Inc.
     ///
     /// Headers signed by trusted keys expect both signatures to be filled in.
-    Trusted(&'a secp256k1::SecretKey),
-    /// Third-party developer key.
+    Trusted,
+    /// Signed by a third-party developer.
     ///
     /// Headers signed by developer keys expect only the second signature to be
     /// filled in. The first signature is left empty (zeroed out).
-    Developer(&'a secp256k1::SecretKey),
+    Developer,
 }
 
 /// Magic number.
@@ -461,26 +463,6 @@ fn ascii_digit(b: u32) -> u8 {
     }
 }
 
-struct StackAllocatedSecp256k1([secp256k1::ffi::types::AlignedType; 256]);
-
-impl StackAllocatedSecp256k1 {
-    fn new() -> Self {
-        Self([secp256k1::ffi::types::AlignedType::default(); 256])
-    }
-
-    fn create_for_signing(
-        &mut self,
-    ) -> Result<secp256k1::Secp256k1<secp256k1::SignOnlyPreallocated<'_>>, Error> {
-        secp256k1::Secp256k1::preallocated_gen_new(&mut self.0).map_err(Error::Secp256k1)
-    }
-
-    fn create_for_verifying(
-        &mut self,
-    ) -> Result<secp256k1::Secp256k1<secp256k1::VerifyOnlyPreallocated<'_>>, Error> {
-        secp256k1::Secp256k1::preallocated_gen_new(&mut self.0).map_err(Error::Secp256k1)
-    }
-}
-
 #[derive(Debug)]
 pub enum Error {
     FirmwareTooLong,
@@ -499,7 +481,6 @@ pub enum Error {
     InvalidVersionTrailingBytes,
     InvalidVersionUtf8,
     PubkeyAlreadyUsed,
-    Secp256k1(secp256k1::Error),
     SerializeBufferTooSmall,
     Signature1Missing,
     Signature2Present,
@@ -535,7 +516,6 @@ impl core::fmt::Display for Error {
             }
             Self::InvalidVersionUtf8 => write!(f, "invalid version UTF-8 in header"),
             Self::PubkeyAlreadyUsed => write!(f, "attempting to sign with the same pubkey twice"),
-            Self::Secp256k1(e) => write!(f, "secp256k1 error: {e}"),
             Self::SerializeBufferTooSmall => write!(f, "buffer too small for serialization"),
             Self::Signature1Missing => write!(f, "signature1 missing in header"),
             Self::Signature2Present => {

@@ -203,9 +203,7 @@ name = "cosign2"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "secp256k1",
  "semver",
- "sha2",
 ]
 
 [[package]]
