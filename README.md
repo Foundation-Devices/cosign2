@@ -102,7 +102,7 @@ file results in an error.
 This command uses OpenSSL to generate the private key in PEM format.
 
 ```bash
-openssl ecparam -genkey -name secp256k1 >~/cosign2-priv.pem
+openssl ecparam -noout -genkey -name secp256k1 >~/cosign2-priv.pem
 ```
 
 ### Generate compressed public key
