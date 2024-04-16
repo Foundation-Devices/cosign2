@@ -7,4 +7,8 @@ edition = "2021"
 chrono = { version = "0.4", default-features = false }
 secp256k1 = { version = "0.29", default-features = false }
 semver = { version = "1.0", default-features = false }
-sha2 = { version = "0.10", default-features = false }
+sha2 = { version = "0.10", default-features = false, optional = true }
+
+[features]
+sign = ["sha2"]
+default = ["sign"]

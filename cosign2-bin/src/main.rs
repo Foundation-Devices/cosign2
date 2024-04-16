@@ -1,5 +1,6 @@
 use {
     colored::Colorize,
+    cosign2::Header,
     std::{
         ffi::OsString,
         io::{Read, Seek, Write},
@@ -52,7 +53,8 @@ where
                 .map_err(Error::OpenInputFile)?
                 .read_to_end(&mut input_buf)
                 .map_err(Error::ReadInputFile)?;
-            match cosign2::Header::parse(&input_buf, &[])? {
+
+            match Header::parse(&input_buf)? {
                 Some(header) => {
                     let magic = match header.magic() {
                         cosign2::Magic::Atsama5d27KeyOs => "atsama5d27-keyos",
@@ -86,57 +88,85 @@ where
                         "{:10} {}",
                         "pubkey1".bold(),
                         match header.pubkey1() {
-                            Some(pubkey) => pubkey.to_string(),
-                            None => "0".repeat(66),
+                            Ok(Some(pubkey)) => pubkey.to_string(),
+                            Ok(None) => "0".repeat(66),
+                            Err(e) => format!("< {} >", e),
                         }
                     )
                     .map_err(Error::Stdout)?;
-                    let signature1 = match header.signature1() {
-                        Some(signature) => signature.serialize_compact(),
-                        None => [0; 64],
+                    match header.signature1() {
+                        Ok(Some(signature)) => {
+                            let sig_bytes = signature.serialize_compact();
+                            writeln!(
+                                &mut stdout,
+                                "{:10} {}",
+                                "signature1".bold(),
+                                hex::encode(&sig_bytes[..32])
+                            )
+                            .map_err(Error::Stdout)?;
+                            writeln!(
+                                &mut stdout,
+                                "{} {}",
+                                " ".repeat(10),
+                                hex::encode(&sig_bytes[32..])
+                            )
+                            .map_err(Error::Stdout)?;
+                        }
+                        Ok(None) => {
+                            writeln!(&mut stdout, "{:10} < empty >", "signature1".bold())
+                                .map_err(Error::Stdout)?;
+                        }
+                        Err(e) => {
+                            writeln!(&mut stdout, "{:10} < {} >", "signature1".bold(), e,)
+                                .map_err(Error::Stdout)?;
+                        }
                     };
-                    writeln!(
-                        &mut stdout,
-                        "{:10} {}",
-                        "signature1".bold(),
-                        hex::encode(&signature1[..32])
-                    )
-                    .map_err(Error::Stdout)?;
-                    writeln!(
-                        &mut stdout,
-                        "{} {}",
-                        " ".repeat(10),
-                        hex::encode(&signature1[32..])
-                    )
-                    .map_err(Error::Stdout)?;
+
                     writeln!(
                         &mut stdout,
                         "{:10} {}",
                         "pubkey2".bold(),
                         match header.pubkey2() {
-                            Some(pubkey) => pubkey.to_string(),
-                            None => "0".repeat(66),
+                            Ok(Some(pubkey)) => pubkey.to_string(),
+                            Ok(None) => "0".repeat(66),
+                            Err(e) => format!("< {} >", e),
                         }
                     )
                     .map_err(Error::Stdout)?;
-                    let signature2 = match header.signature2() {
-                        Some(signature) => signature.serialize_compact(),
-                        None => [0; 64],
+
+                    match header.signature2() {
+                        Ok(Some(signature)) => {
+                            let sig_bytes = signature.serialize_compact();
+                            writeln!(
+                                &mut stdout,
+                                "{:10} {}",
+                                "signature2".bold(),
+                                hex::encode(&sig_bytes[..32])
+                            )
+                            .map_err(Error::Stdout)?;
+                            writeln!(
+                                &mut stdout,
+                                "{} {}",
+                                " ".repeat(10),
+                                hex::encode(&sig_bytes[32..])
+                            )
+                            .map_err(Error::Stdout)?;
+                        }
+                        Ok(None) => {
+                            writeln!(&mut stdout, "{:10} < empty >", "signature2".bold())
+                                .map_err(Error::Stdout)?;
+                        }
+                        Err(e) => {
+                            writeln!(&mut stdout, "{:10} < {} >", "signature2".bold(), e,)
+                                .map_err(Error::Stdout)?;
+                        }
                     };
-                    writeln!(
-                        &mut stdout,
-                        "{:10} {}",
-                        "signature2".bold(),
-                        hex::encode(&signature2[..32])
-                    )
-                    .map_err(Error::Stdout)?;
-                    writeln!(
-                        &mut stdout,
-                        "{} {}",
-                        " ".repeat(10),
-                        hex::encode(&signature2[32..])
-                    )
-                    .map_err(Error::Stdout)?;
+
+                    let firmware = &input_buf[Header::SIZE..];
+                    let hash = header.hash(firmware);
+                    writeln!(&mut stdout, "{:10} {:x}", "hash".bold(), &hash,)
+                        .map_err(Error::Stdout)?;
+                    header.verify(&hash, &[])?;
                 }
                 None => {
                     writeln!(&mut stdout, "{}", "no header found".bold()).map_err(Error::Stdout)?
@@ -201,50 +231,61 @@ where
                 .read_to_end(&mut input_buf)
                 .map_err(Error::ReadInputFile)?;
 
-            let (header, mut firmware) =
-                match cosign2::Header::parse(&input_buf, known_pubkeys.as_slice())? {
-                    // If a header is present, add a second signature.
-                    Some(mut header) => {
-                        match version {
-                            Some(version) if header.version() != version.to_string() => {
-                                return Err(Error::VersionMismatch {
-                                    header: header.version().to_owned(),
-                                    expected: version.to_string(),
-                                });
-                            }
-                            _ => {}
-                        }
-                        match magic {
-                            Some(magic) if header.magic() != magic => {
-                                return Err(Error::MagicMismatch {
-                                    header: header.magic(),
-                                    expected: magic,
-                                });
-                            }
-                            _ => {}
-                        }
-                        header.add_second_signature(&secret)?;
-                        (header, &input_buf[cosign2::Header::SIZE..])
+            let (header, mut firmware) = match Header::parse(&input_buf)? {
+                // If a header is present, add a second signature.
+                Some(mut header) => {
+                    let firmware = &input_buf[Header::SIZE..];
+
+                    if header.firmware_size() as usize != firmware.len() {
+                        return Err(Error::Cosign2(cosign2::Error::InvalidFirmwareSize {
+                            header: header.firmware_size(),
+                            actual: firmware.len() as u32,
+                        }));
                     }
-                    // If no header is present, create and sign a new header.
-                    None => {
-                        let header = cosign2::Header::sign_new(
-                            magic.ok_or(Error::TargetMissing)?,
-                            &version.ok_or(Error::VersionMissing)?.to_string(),
-                            chrono::Utc::now().timestamp().try_into().expect("not 2106"),
-                            if developer {
-                                cosign2::Signer::Developer(&secret)
-                            } else {
-                                cosign2::Signer::Trusted(&secret)
-                            },
-                            &input_buf,
-                        )?;
-                        (header, input_buf.as_slice())
+
+                    let hash = header.hash(firmware);
+                    header.verify(&hash, &known_pubkeys)?;
+
+                    match version {
+                        Some(version) if header.version() != version.to_string() => {
+                            return Err(Error::VersionMismatch {
+                                header: header.version().to_owned(),
+                                expected: version.to_string(),
+                            });
+                        }
+                        _ => {}
                     }
-                };
+                    match magic {
+                        Some(magic) if header.magic() != magic => {
+                            return Err(Error::MagicMismatch {
+                                header: header.magic(),
+                                expected: magic,
+                            });
+                        }
+                        _ => {}
+                    }
+                    header.add_second_signature(&hash, &secret)?;
+                    (header, firmware)
+                }
+                // If no header is present, create and sign a new header.
+                None => {
+                    let header = Header::sign_new(
+                        magic.ok_or(Error::TargetMissing)?,
+                        &version.ok_or(Error::VersionMissing)?.to_string(),
+                        chrono::Utc::now().timestamp().try_into().expect("not 2106"),
+                        if developer {
+                            cosign2::Signer::Developer(&secret)
+                        } else {
+                            cosign2::Signer::Trusted(&secret)
+                        },
+                        &input_buf,
+                    )?;
+                    (header, input_buf.as_slice())
+                }
+            };
 
             // Write the signed header and firmware to output file.
-            let mut header_buf = [0u8; cosign2::Header::SIZE];
+            let mut header_buf = [0u8; Header::SIZE];
             header.serialize(&mut header_buf)?;
             output
                 .file()
@@ -271,9 +312,12 @@ where
                 .file()
                 .read_to_end(&mut output_buf)
                 .map_err(Error::ReadOutputFile)?;
-            cosign2::Header::parse(&output_buf, &known_pubkeys)
+            let header = Header::parse(&output_buf)
                 .map_err(Error::ParseOutputFile)?
                 .ok_or(Error::ParseOutputFileNoHeader)?;
+            let firmware = &output_buf[Header::SIZE..];
+            let hash = header.hash(firmware);
+            header.verify(&hash, &known_pubkeys)?;
         }
     }
     Ok(())
