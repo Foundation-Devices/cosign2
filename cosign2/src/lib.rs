@@ -122,8 +122,11 @@ impl Header {
         sha: &mut impl Sha256,
         secp: &impl Secp256k1Sign,
     ) -> Result<Self, Error> {
-        // Validate the version string.
-        semver::Version::from_str(version).map_err(|_| Error::InvalidVersionSemver)?;
+        #[cfg(feature = "with_semver")]
+        {
+            // Validate the version string.
+            semver::Version::from_str(version).map_err(|_| Error::InvalidVersionSemver)?;
+        }
 
         let mut header = Self {
             magic: magic.as_bytes(),
@@ -330,7 +333,10 @@ impl Header {
             .unwrap_or(self.version.len());
         let version = core::str::from_utf8(&self.version[..first_zero])
             .map_err(|_| Error::InvalidVersionUtf8)?;
-        semver::Version::from_str(version).map_err(|_| Error::InvalidVersionSemver)?;
+        #[cfg(feature = "with_semver")]
+        {
+            semver::Version::from_str(version).map_err(|_| Error::InvalidVersionSemver)?;
+        }
         if self.version[first_zero..].iter().any(|&b| b != 0) {
             return Err(Error::InvalidVersionTrailingBytes);
         }
