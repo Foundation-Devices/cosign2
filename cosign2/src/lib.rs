@@ -47,7 +47,12 @@ pub trait Secp256k1Sign {
 /// ECDSA secp256k1 verification.
 pub trait Secp256k1Verify {
     /// Verify an ECDSA signature against the given public key.
-    fn verify_ecdsa(&self, msg: [u8; 32], signature: [u8; 64], pubkey: [u8; 33]) -> VerificationResult;
+    fn verify_ecdsa(
+        &self,
+        msg: [u8; 32],
+        signature: [u8; 64],
+        pubkey: [u8; 33],
+    ) -> VerificationResult;
 }
 
 impl Header {
@@ -174,7 +179,8 @@ impl Header {
     ///
     /// **DO NOT TRUST ANY DATA BEFORE IT'S VERIFIED**
     ///
-    /// Use the [parse](Header::parse) function to read and verify the header signatures.
+    /// Use the [parse](Header::parse) function to read and verify the header
+    /// signatures.
     pub fn read(data: &[u8]) -> Result<Option<Self>, Error> {
         if data.len() < 4 {
             return Ok(None);
@@ -235,7 +241,7 @@ impl Header {
         secp: &impl Secp256k1Verify,
     ) -> Result<Option<Self>, Error> {
         let Some(mut header) = Header::read(data)? else {
-            return Ok(None)
+            return Ok(None);
         };
 
         let reserved = &data[240..Self::SIZE];
@@ -333,7 +339,10 @@ impl Header {
             if !known_signers.is_empty() && !known_signers.contains(&self.pubkey1) {
                 return Err(Error::UnknownPubkey1);
             }
-            if !matches!(secp.verify_ecdsa(self.hash, self.signature1, self.pubkey1), VerificationResult::Valid) {
+            if !matches!(
+                secp.verify_ecdsa(self.hash, self.signature1, self.pubkey1),
+                VerificationResult::Valid
+            ) {
                 return Err(Error::InvalidSignature1);
             }
         }
@@ -341,7 +350,10 @@ impl Header {
             if !known_signers.is_empty() && !known_signers.contains(&self.pubkey2) {
                 return Err(Error::UnknownPubkey2);
             }
-            if !matches!(secp.verify_ecdsa(self.hash, self.signature2, self.pubkey2), VerificationResult::Valid) {
+            if !matches!(
+                secp.verify_ecdsa(self.hash, self.signature2, self.pubkey2),
+                VerificationResult::Valid
+            ) {
                 return Err(Error::InvalidSignature2);
             }
         }
@@ -441,7 +453,8 @@ impl Header {
         Ok(())
     }
 
-    /// Returns firmware hash calculated during the parsing/verification process.
+    /// Returns firmware hash calculated during the parsing/verification
+    /// process.
     pub fn fw_hash(&self) -> &[u8; 32] {
         &self.fw_hash
     }

@@ -23,7 +23,12 @@ impl crate::Secp256k1Sign for Secp256k1Sign {
 struct Secp256k1Verify;
 
 impl crate::Secp256k1Verify for Secp256k1Verify {
-    fn verify_ecdsa(&self, _msg: [u8; 32], _sig: [u8; 64], _pubkey: [u8; 33]) -> VerificationResult {
+    fn verify_ecdsa(
+        &self,
+        _msg: [u8; 32],
+        _sig: [u8; 64],
+        _pubkey: [u8; 33],
+    ) -> VerificationResult {
         VerificationResult::Valid
     }
 }

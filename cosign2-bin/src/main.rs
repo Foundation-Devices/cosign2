@@ -1,5 +1,6 @@
 use {
     colored::Colorize,
+    cosign2::VerificationResult,
     sha2::Digest,
     std::{
         ffi::OsString,
@@ -7,7 +8,6 @@ use {
         path::{Path, PathBuf},
     },
 };
-use cosign2::VerificationResult;
 
 mod args;
 
@@ -77,8 +77,13 @@ where
                     .map_err(Error::Stdout)?;
                     writeln!(&mut stdout, "{:10} {}", "date".bold(), header.date())
                         .map_err(Error::Stdout)?;
-                    writeln!(&mut stdout, "{:10} {}", "version".bold(), header.version().unwrap())
-                        .map_err(Error::Stdout)?;
+                    writeln!(
+                        &mut stdout,
+                        "{:10} {}",
+                        "version".bold(),
+                        header.version().unwrap()
+                    )
+                    .map_err(Error::Stdout)?;
                     let human_size =
                         humansize::format_size(header.firmware_size(), humansize::BINARY);
                     writeln!(
@@ -317,23 +322,30 @@ impl cosign2::Secp256k1Sign for Secp256k1Sign {
 
 #[derive(Debug, Default)]
 struct Secp256k1Verify(
-    #[cfg(not(feature = "micro-ecc-verify"))]
-    secp256k1::Secp256k1<secp256k1::All>
+    #[cfg(not(feature = "micro-ecc-verify"))] secp256k1::Secp256k1<secp256k1::All>,
 );
 
 impl cosign2::Secp256k1Verify for Secp256k1Verify {
     #[cfg(not(feature = "micro-ecc-verify"))]
-    fn verify_ecdsa(&self, msg: [u8; 32], signature: [u8; 64], pubkey: [u8; 33]) -> VerificationResult {
+    fn verify_ecdsa(
+        &self,
+        msg: [u8; 32],
+        signature: [u8; 64],
+        pubkey: [u8; 33],
+    ) -> VerificationResult {
         let Ok(pubkey) = secp256k1::PublicKey::from_slice(&pubkey) else {
             return VerificationResult::Invalid;
         };
 
-        if self.0
+        if self
+            .0
             .verify_ecdsa(
                 &secp256k1::Message::from_digest(msg),
                 &secp256k1::ecdsa::Signature::from_compact(&signature).expect("64 bytes"),
                 &pubkey,
-            ).is_ok() {
+            )
+            .is_ok()
+        {
             VerificationResult::Valid
         } else {
             VerificationResult::Invalid
@@ -341,21 +353,26 @@ impl cosign2::Secp256k1Verify for Secp256k1Verify {
     }
 
     #[cfg(feature = "micro-ecc-verify")]
-    fn verify_ecdsa(&self, msg: [u8; 32], signature: [u8; 64], pubkey: [u8; 33]) -> VerificationResult {
+    fn verify_ecdsa(
+        &self,
+        msg: [u8; 32],
+        signature: [u8; 64],
+        pubkey: [u8; 33],
+    ) -> VerificationResult {
         let mut uncompressed_pk = [0; 64];
 
         unsafe {
             micro_ecc_sys::uECC_decompress(
                 pubkey.as_ptr(),
                 uncompressed_pk.as_mut_ptr(),
-                micro_ecc_sys::uECC_secp256k1()
+                micro_ecc_sys::uECC_secp256k1(),
             )
         };
 
         let res = unsafe {
             micro_ecc_sys::uECC_valid_public_key(
                 uncompressed_pk.as_ptr(),
-                micro_ecc_sys::uECC_secp256k1()
+                micro_ecc_sys::uECC_secp256k1(),
             )
         };
         if res != 1 {
@@ -368,7 +385,7 @@ impl cosign2::Secp256k1Verify for Secp256k1Verify {
                 msg.as_ptr(),
                 msg.len() as u32,
                 signature.as_ptr(),
-                micro_ecc_sys::uECC_secp256k1()
+                micro_ecc_sys::uECC_secp256k1(),
             )
         };
 
