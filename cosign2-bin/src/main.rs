@@ -77,7 +77,7 @@ where
                     .map_err(Error::Stdout)?;
                     writeln!(&mut stdout, "{:10} {}", "date".bold(), header.date())
                         .map_err(Error::Stdout)?;
-                    writeln!(&mut stdout, "{:10} {}", "version".bold(), header.version())
+                    writeln!(&mut stdout, "{:10} {}", "version".bold(), header.version().unwrap())
                         .map_err(Error::Stdout)?;
                     let human_size =
                         humansize::format_size(header.firmware_size(), humansize::BINARY);
@@ -206,10 +206,11 @@ where
             )? {
                 // If a header is present, add a second signature.
                 Some(mut header) => {
+                    let header_version = header.version().unwrap();
                     match version {
-                        Some(version) if header.version() != version.to_string() => {
+                        Some(version) if header_version != version.to_string() => {
                             return Err(Error::VersionMismatch {
-                                header: header.version().to_owned(),
+                                header: header_version.to_owned(),
                                 expected: version.to_string(),
                             });
                         }

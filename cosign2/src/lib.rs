@@ -81,13 +81,13 @@ impl Header {
     }
 
     /// Firmware version.
-    pub fn version(&self) -> &str {
+    pub fn version(&self) -> Option<&str> {
         let first_zero = self
             .version
             .iter()
             .position(|&b| b == 0)
             .unwrap_or(self.version.len());
-        core::str::from_utf8(&self.version[..first_zero]).expect("validated")
+        core::str::from_utf8(&self.version[..first_zero]).ok()
     }
 
     /// The size of the firmware.
