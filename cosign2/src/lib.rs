@@ -16,14 +16,17 @@ pub struct Header {
     signature1: [u8; 64],
     pubkey2: [u8; 33],
     signature2: [u8; 64],
-    /// Hash of the header and firmware code.
+
+    /// Hash of the header and firmware code (not present in the header).
     hash: [u8; 32],
+    /// Hash of the firmware only (not present in the header).
+    fw_hash: [u8; 32],
 }
 
 /// SHA-256 hash function.
 pub trait Sha256 {
-    /// Start a new hash.
-    fn start(&mut self);
+    fn hash(&mut self, data: &[u8]) -> [u8; 32];
+}
 
 #[derive(Debug, Copy, Clone)]
 #[repr(u32)]
@@ -141,6 +144,7 @@ impl Header {
             pubkey2: [0; 33],
             signature2: [0; 64],
             hash: [0; 32],
+            fw_hash: [0; 32],
         };
         header.set_date(timestamp);
         header.set_version(version)?;
@@ -166,19 +170,12 @@ impl Header {
         Ok(header)
     }
 
-    /// Parse a header from a reader.
+    /// Reads the header without attempting to verify it.
     ///
-    /// Verifies that any existing signatures are signed by the given known
-    /// signers. If the known signers slice is empty, any signer is
-    /// accepted.
+    /// **DO NOT TRUST ANY DATA BEFORE IT'S VERIFIED**
     ///
-    /// If the header is missing, `None` is returned.
-    pub fn parse(
-        data: &[u8],
-        known_signers: &[[u8; 33]],
-        sha: &mut impl Sha256,
-        secp: &impl Secp256k1Verify,
-    ) -> Result<Option<Self>, Error> {
+    /// Use the [parse](Header::parse) function to read and verify the header signatures.
+    pub fn read(data: &[u8]) -> Result<Option<Self>, Error> {
         if data.len() < 4 {
             return Ok(None);
         }
@@ -209,9 +206,7 @@ impl Header {
             return Err(Error::HeaderWithNoSignature);
         }
 
-        let reserved = &data[240..Self::SIZE];
-
-        let mut header = Self {
+        Ok(Some(Self {
             magic,
             timestamp,
             date,
@@ -222,8 +217,28 @@ impl Header {
             pubkey2,
             signature2,
             hash: [0; 32],
+            fw_hash: [0; 32],
+        }))
+    }
+
+    /// Parse a header from a reader.
+    ///
+    /// Verifies that any existing signatures are signed by the given known
+    /// signers. If the known signers slice is empty, any signer is
+    /// accepted.
+    ///
+    /// If the header is missing, `None` is returned.
+    pub fn parse(
+        data: &[u8],
+        known_signers: &[[u8; 33]],
+        sha: &mut impl Sha256,
+        secp: &impl Secp256k1Verify,
+    ) -> Result<Option<Self>, Error> {
+        let Some(mut header) = Header::read(data)? else {
+            return Ok(None)
         };
 
+        let reserved = &data[240..Self::SIZE];
         let firmware = &data[Self::SIZE..];
         header.hash(reserved, firmware, sha);
         header.verify_signatures(known_signers, secp)?;
@@ -280,22 +295,33 @@ impl Header {
 
     /// Hash up the header and store it in the `hash` field.
     fn hash(&mut self, reserved: &[u8], firmware: &[u8], sha: &mut impl Sha256) {
-        sha.start();
-        // First hash the header itself, excluding only the signatures and pubkeys.
-        sha.update(&self.magic);
-        sha.update(&self.timestamp);
-        sha.update(&self.date);
-        sha.update(&self.version);
-        sha.update(&self.firmware_size);
-        // Include the reserved bytes in the hash.
-        sha.update(reserved);
-        // Hash the firmware code.
-        sha.update(firmware);
-        // Do a second hash to avoid length extension attacks.
-        let hash = sha.finish();
-        sha.start();
-        sha.update(&hash);
-        self.hash = sha.finish();
+        let mut hash_buf = [0; 128];
+
+        // Fill header hash buf with header data
+        let mut offset = 0;
+        hash_buf[offset..offset + self.magic.len()].copy_from_slice(&self.magic);
+        offset += self.magic.len();
+        hash_buf[offset..offset + self.timestamp.len()].copy_from_slice(&self.timestamp);
+        offset += self.timestamp.len();
+        hash_buf[offset..offset + self.date.len()].copy_from_slice(&self.date);
+        offset += self.date.len();
+        hash_buf[offset..offset + self.version.len()].copy_from_slice(&self.version);
+        offset += self.version.len();
+        hash_buf[offset..offset + self.firmware_size.len()].copy_from_slice(&self.firmware_size);
+
+        let header_hash = sha.hash(&hash_buf);
+        let reserved_hash = sha.hash(reserved);
+        let firmware_hash = sha.hash(firmware);
+
+        hash_buf.fill(0);
+        hash_buf[0..32].copy_from_slice(&header_hash);
+        hash_buf[32..64].copy_from_slice(&reserved_hash);
+        hash_buf[64..96].copy_from_slice(&firmware_hash);
+        let hash = sha.hash(&hash_buf);
+
+        // Hash twice to prevent length extension attacks
+        self.hash = sha.hash(&hash);
+        self.fw_hash = firmware_hash;
     }
 
     fn verify_signatures(
@@ -413,6 +439,11 @@ impl Header {
         }
         self.version[..version.len()].copy_from_slice(version.as_bytes());
         Ok(())
+    }
+
+    /// Returns firmware hash calculated during the parsing/verification process.
+    pub fn fw_hash(&self) -> &[u8; 32] {
+        &self.fw_hash
     }
 }
 
