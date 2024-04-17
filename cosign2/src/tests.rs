@@ -23,19 +23,15 @@ impl crate::Secp256k1Sign for Secp256k1Sign {
 struct Secp256k1Verify;
 
 impl crate::Secp256k1Verify for Secp256k1Verify {
-    fn verify_ecdsa(&self, _msg: [u8; 32], _sig: [u8; 64], _pubkey: [u8; 33]) -> bool {
-        true
+    fn verify_ecdsa(&self, _msg: [u8; 32], _sig: [u8; 64], _pubkey: [u8; 33]) -> VerificationResult {
+        VerificationResult::Valid
     }
 }
 
 struct Sha256;
 
 impl crate::Sha256 for Sha256 {
-    fn start(&mut self) {}
-
-    fn update(&mut self, _data: &[u8]) {}
-
-    fn finish(&mut self) -> [u8; 32] {
+    fn hash(&mut self, _data: &[u8]) -> [u8; 32] {
         [1; 32]
     }
 }
@@ -72,10 +68,10 @@ fn developer_singing() {
     assert_eq!(header.signature2(), parsed.signature2());
 
     // The signing procedure filled in the correct field.
-    assert!(header.pubkey1() == [0; 33]);
-    assert!(header.signature1() == [0; 64]);
-    assert!(header.pubkey2() != [0; 33]);
-    assert!(header.signature2() != [0; 64]);
+    assert_eq!(header.pubkey1(), [0; 33]);
+    assert_eq!(header.signature1(), [0; 64]);
+    assert_ne!(header.pubkey2(), [0; 33]);
+    assert_ne!(header.signature2(), [0; 64]);
 
     // The binary representation is correct.
     assert_eq!(buf.len(), Header::SIZE + firmware.len());
@@ -142,10 +138,10 @@ fn trusted_singing() {
     assert_eq!(header.signature2(), parsed.signature2());
 
     // The signing procedure filled in the correct field.
-    assert!(header.pubkey1() != [0; 33]);
-    assert!(header.signature1() != [0; 64]);
-    assert!(header.pubkey2() == [0; 33]);
-    assert!(header.signature2() == [0; 64]);
+    assert_ne!(header.pubkey1(), [0; 33]);
+    assert_ne!(header.signature1(), [0; 64]);
+    assert_eq!(header.pubkey2(), [0; 33]);
+    assert_eq!(header.signature2(), [0; 64]);
 
     // The binary representation is correct.
     assert_eq!(buf.len(), Header::SIZE + firmware.len());
@@ -203,10 +199,10 @@ fn trusted_singing() {
     assert_eq!(header.signature2(), parsed.signature2());
 
     // The signing procedure filled in the correct fields.
-    assert!(header.pubkey1() != [0; 33]);
-    assert!(header.signature1() != [0; 64]);
-    assert!(header.pubkey2() != [0; 33]);
-    assert!(header.signature2() != [0; 64]);
+    assert_ne!(header.pubkey1(), [0; 33]);
+    assert_ne!(header.signature1(), [0; 64]);
+    assert_ne!(header.pubkey2(), [0; 33]);
+    assert_ne!(header.signature2(), [0; 64]);
 
     // The binary representation is correct.
     assert_eq!(buf.len(), Header::SIZE + firmware.len());
