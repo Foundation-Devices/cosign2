@@ -25,11 +25,11 @@ pub trait Sha256 {
     /// Start a new hash.
     fn start(&mut self);
 
-    /// Update the hash with new data.
-    fn update(&mut self, data: &[u8]);
-
-    /// Finish the hash and return the result.
-    fn finish(&mut self) -> [u8; 32];
+#[derive(Debug, Copy, Clone)]
+#[repr(u32)]
+pub enum VerificationResult {
+    Valid = 0xcafebabe,
+    Invalid = 0xdeadbeef,
 }
 
 /// ECDSA secp256k1 signing.
@@ -44,7 +44,7 @@ pub trait Secp256k1Sign {
 /// ECDSA secp256k1 verification.
 pub trait Secp256k1Verify {
     /// Verify an ECDSA signature against the given public key.
-    fn verify_ecdsa(&self, msg: [u8; 32], signature: [u8; 64], pubkey: [u8; 33]) -> bool;
+    fn verify_ecdsa(&self, msg: [u8; 32], signature: [u8; 64], pubkey: [u8; 33]) -> VerificationResult;
 }
 
 impl Header {
@@ -304,7 +304,7 @@ impl Header {
             if !known_signers.is_empty() && !known_signers.contains(&self.pubkey1) {
                 return Err(Error::UnknownPubkey1);
             }
-            if !secp.verify_ecdsa(self.hash, self.signature1, self.pubkey1) {
+            if !matches!(secp.verify_ecdsa(self.hash, self.signature1, self.pubkey1), VerificationResult::Valid) {
                 return Err(Error::InvalidSignature1);
             }
         }
@@ -312,7 +312,7 @@ impl Header {
             if !known_signers.is_empty() && !known_signers.contains(&self.pubkey2) {
                 return Err(Error::UnknownPubkey2);
             }
-            if !secp.verify_ecdsa(self.hash, self.signature2, self.pubkey2) {
+            if !matches!(secp.verify_ecdsa(self.hash, self.signature2, self.pubkey2), VerificationResult::Valid) {
                 return Err(Error::InvalidSignature2);
             }
         }

@@ -8,6 +8,7 @@ use {
         path::{Path, PathBuf},
     },
 };
+use cosign2::VerificationResult;
 
 mod args;
 
