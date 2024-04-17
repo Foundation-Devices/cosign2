@@ -4,7 +4,6 @@ use {
     std::{
         ffi::OsString,
         io::{Read, Seek, Write},
-        mem,
         path::{Path, PathBuf},
     },
 };
@@ -316,20 +315,67 @@ impl cosign2::Secp256k1Sign for Secp256k1Sign {
 }
 
 #[derive(Debug, Default)]
-struct Secp256k1Verify(secp256k1::Secp256k1<secp256k1::All>);
+struct Secp256k1Verify(
+    #[cfg(not(feature = "micro-ecc-verify"))]
+    secp256k1::Secp256k1<secp256k1::All>
+);
 
 impl cosign2::Secp256k1Verify for Secp256k1Verify {
-    fn verify_ecdsa(&self, msg: [u8; 32], signature: [u8; 64], pubkey: [u8; 33]) -> bool {
+    #[cfg(not(feature = "micro-ecc-verify"))]
+    fn verify_ecdsa(&self, msg: [u8; 32], signature: [u8; 64], pubkey: [u8; 33]) -> VerificationResult {
         let Ok(pubkey) = secp256k1::PublicKey::from_slice(&pubkey) else {
-            return false;
+            return VerificationResult::Invalid;
         };
-        self.0
+
+        if self.0
             .verify_ecdsa(
                 &secp256k1::Message::from_digest(msg),
                 &secp256k1::ecdsa::Signature::from_compact(&signature).expect("64 bytes"),
                 &pubkey,
+            ).is_ok() {
+            VerificationResult::Valid
+        } else {
+            VerificationResult::Invalid
+        }
+    }
+
+    #[cfg(feature = "micro-ecc-verify")]
+    fn verify_ecdsa(&self, msg: [u8; 32], signature: [u8; 64], pubkey: [u8; 33]) -> VerificationResult {
+        let mut uncompressed_pk = [0; 64];
+
+        unsafe {
+            micro_ecc_sys::uECC_decompress(
+                pubkey.as_ptr(),
+                uncompressed_pk.as_mut_ptr(),
+                micro_ecc_sys::uECC_secp256k1()
             )
-            .is_ok()
+        };
+
+        let res = unsafe {
+            micro_ecc_sys::uECC_valid_public_key(
+                uncompressed_pk.as_ptr(),
+                micro_ecc_sys::uECC_secp256k1()
+            )
+        };
+        if res != 1 {
+            return VerificationResult::Invalid;
+        }
+
+        let res = unsafe {
+            micro_ecc_sys::uECC_verify(
+                uncompressed_pk.as_ptr(),
+                msg.as_ptr(),
+                msg.len() as u32,
+                signature.as_ptr(),
+                micro_ecc_sys::uECC_secp256k1()
+            )
+        };
+
+        if res == 1 {
+            VerificationResult::Valid
+        } else {
+            VerificationResult::Invalid
+        }
     }
 }
 
