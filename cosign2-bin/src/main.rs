@@ -381,19 +381,13 @@ impl cosign2::Secp256k1Verify for Secp256k1Verify {
 }
 
 #[derive(Debug, Default)]
-struct Sha256(sha2::Sha256);
+struct Sha256 {}
 
 impl cosign2::Sha256 for Sha256 {
-    fn start(&mut self) {
-        self.0 = sha2::Sha256::new();
-    }
-
-    fn update(&mut self, data: &[u8]) {
-        self.0.update(data);
-    }
-
-    fn finish(&mut self) -> [u8; 32] {
-        mem::take(&mut self.0).finalize().into()
+    fn hash(&mut self, data: &[u8]) -> [u8; 32] {
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(data);
+        hasher.finalize().into()
     }
 }
 
