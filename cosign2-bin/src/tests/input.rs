@@ -5,8 +5,6 @@ use {
     std::io::Write,
 };
 
-// TODO All fixture files can be removed
-
 pub const SECRET_1_PEM: &[u8] = br"-----BEGIN EC PRIVATE KEY-----
 MHQCAQEEILP3haO4tNGh6X7CeC0a+o9Ad2WVrHaFieIYxXKogc+7oAcGBSuBBAAK
 oUQDQgAEcaPmBleCgfa8tGGoraZxgpwzSLaIeHxouqda1RkW7fwLSTPLAocNwtdM

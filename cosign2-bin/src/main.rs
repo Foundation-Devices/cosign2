@@ -15,24 +15,6 @@ mod args;
 mod tests;
 
 fn main() -> std::process::ExitCode {
-    let secret_key_1 = secp256k1::SecretKey::from_slice(&[
-        179, 247, 133, 163, 184, 180, 209, 161, 233, 126, 194, 120, 45, 26, 250, 143, 64, 119, 101,
-        149, 172, 118, 133, 137, 226, 24, 197, 114, 168, 129, 207, 187,
-    ])
-    .unwrap();
-    let secret_key_2 = secp256k1::SecretKey::from_slice(&[
-        165, 173, 224, 118, 144, 45, 243, 15, 146, 156, 153, 56, 237, 13, 159, 208, 66, 208, 36,
-        143, 167, 240, 247, 115, 34, 1, 44, 218, 27, 221, 123, 244,
-    ])
-    .unwrap();
-    let secp = secp256k1::Secp256k1::new();
-    let public_key_1 = secret_key_1.public_key(&secp);
-    let public_key_2 = secret_key_2.public_key(&secp);
-    println!("public key 1 bytes {:?}", public_key_1.serialize());
-    println!("public key 1 hex {}", hex::encode(public_key_1.serialize()));
-    println!("public key 2 bytes {:?}", public_key_2.serialize());
-    println!("public key 2 hex {}", hex::encode(public_key_2.serialize()));
-
     main_args(
         std::env::args_os(),
         &mut std::io::stdout(),
@@ -72,12 +54,7 @@ where
                 .map_err(Error::OpenInputFile)?
                 .read_to_end(&mut input_buf)
                 .map_err(Error::ReadInputFile)?;
-            match cosign2::Header::parse(
-                &input_buf,
-                &[],
-                &Sha256,
-                &Secp256k1Verify::default(),
-            )? {
+            match cosign2::Header::parse(&input_buf, &[], &Sha256, &Secp256k1Verify::default())? {
                 Some(header) => {
                     let magic = match header.magic() {
                         cosign2::Magic::Atsama5d27KeyOs => "atsama5d27-keyos",
@@ -95,13 +72,8 @@ where
                     .map_err(Error::Stdout)?;
                     writeln!(&mut stdout, "{:10} {}", "date".bold(), header.date())
                         .map_err(Error::Stdout)?;
-                    writeln!(
-                        &mut stdout,
-                        "{:10} {}",
-                        "version".bold(),
-                        header.version().unwrap()
-                    )
-                    .map_err(Error::Stdout)?;
+                    writeln!(&mut stdout, "{:10} {}", "version".bold(), header.version())
+                        .map_err(Error::Stdout)?;
                     let human_size =
                         humansize::format_size(header.firmware_size(), humansize::BINARY);
                     writeln!(
@@ -229,11 +201,10 @@ where
             )? {
                 // If a header is present, add a second signature.
                 Some(mut header) => {
-                    let header_version = header.version().unwrap();
                     match version {
-                        Some(version) if header_version != version.to_string() => {
+                        Some(version) if header.version() != version.to_string() => {
                             return Err(Error::VersionMismatch {
-                                header: header_version.to_owned(),
+                                header: header.version().to_owned(),
                                 expected: version.to_string(),
                             });
                         }
