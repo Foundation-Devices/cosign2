@@ -14,7 +14,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      - run: sudo apt-get install -y clang libclang-dev
       - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
   test:
@@ -22,7 +21,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: sudo apt-get install -y clang libclang-dev
       - run: cargo test --all
 
   rustfmt:
@@ -32,7 +30,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - run: sudo apt-get install -y clang libclang-dev
       - run: cargo fmt --all -- --check
 
   doc:
@@ -40,5 +37,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: sudo apt-get install -y clang libclang-dev
       - run: cargo doc --no-deps --document-private-items
