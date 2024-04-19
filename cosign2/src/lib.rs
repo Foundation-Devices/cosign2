@@ -1,4 +1,4 @@
-#![no_std]
+//#![no_std]
 
 use {chrono::Datelike, core::str::FromStr};
 
@@ -20,19 +20,12 @@ pub struct Header {
     /// Hash of the header and firmware code (not present in the header).
     hash: [u8; 32],
     /// Hash of the firmware only (not present in the header).
-    fw_hash: [u8; 32],
+    firmware_hash: [u8; 32],
 }
 
 /// SHA-256 hash function.
 pub trait Sha256 {
-    fn hash(&mut self, data: &[u8]) -> [u8; 32];
-}
-
-#[derive(Debug, Copy, Clone)]
-#[repr(u32)]
-pub enum VerificationResult {
-    Valid = 0xcafebabe,
-    Invalid = 0xdeadbeef,
+    fn hash(&self, data: &[u8]) -> [u8; 32];
 }
 
 /// ECDSA secp256k1 signing.
@@ -53,6 +46,16 @@ pub trait Secp256k1Verify {
         signature: [u8; 64],
         pubkey: [u8; 33],
     ) -> VerificationResult;
+}
+
+/// Verification result.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[repr(u32)]
+pub enum VerificationResult {
+    // The values are arbitrary, but chosen to be different by more than one bit to make glitching
+    // attacks more difficult.
+    Valid = 0xcafebabe,
+    Invalid = 0xdeadbeef,
 }
 
 impl Header {
@@ -86,13 +89,13 @@ impl Header {
     }
 
     /// Firmware version.
-    pub fn version(&self) -> Option<&str> {
+    pub fn version(&self) -> &str {
         let first_zero = self
             .version
             .iter()
             .position(|&b| b == 0)
             .unwrap_or(self.version.len());
-        core::str::from_utf8(&self.version[..first_zero]).ok()
+        core::str::from_utf8(&self.version[..first_zero]).expect("validated")
     }
 
     /// The size of the firmware.
@@ -120,6 +123,14 @@ impl Header {
         self.signature2
     }
 
+    /// Hash of the firmware that this header is for.
+    ///
+    /// All zeros if the header was created using
+    /// [`parse_unverified`](Header::parse_unverified).
+    pub fn firmware_hash(&self) -> &[u8; 32] {
+        &self.firmware_hash
+    }
+
     /// Create a new header and sign it.
     pub fn sign_new(
         magic: Magic,
@@ -127,17 +138,15 @@ impl Header {
         timestamp: u32,
         signer: Signer,
         firmware: &[u8],
-        sha: &mut impl Sha256,
+        sha: &impl Sha256,
         secp: &impl Secp256k1Sign,
     ) -> Result<Self, Error> {
-        #[cfg(feature = "with_semver")]
-        {
-            // Validate the version string.
-            semver::Version::from_str(version).map_err(|_| Error::InvalidVersionSemver)?;
-        }
+        // Validate the version string.
+        #[cfg(feature = "semver")]
+        semver::Version::from_str(version).map_err(|_| Error::InvalidVersionSemver)?;
 
         let mut header = Self {
-            magic: magic.as_bytes(),
+            magic: magic.to_bytes(),
             timestamp: timestamp.to_le_bytes(),
             date: [0; 14],
             version: [0; 20],
@@ -149,7 +158,7 @@ impl Header {
             pubkey2: [0; 33],
             signature2: [0; 64],
             hash: [0; 32],
-            fw_hash: [0; 32],
+            firmware_hash: [0; 32],
         };
         header.set_date(timestamp);
         header.set_version(version)?;
@@ -175,59 +184,7 @@ impl Header {
         Ok(header)
     }
 
-    /// Reads the header without attempting to verify it.
-    ///
-    /// **DO NOT TRUST ANY DATA BEFORE IT'S VERIFIED**
-    ///
-    /// Use the [parse](Header::parse) function to read and verify the header
-    /// signatures.
-    pub fn read(data: &[u8]) -> Result<Option<Self>, Error> {
-        if data.len() < 4 {
-            return Ok(None);
-        }
-
-        let magic = data[..4].try_into().unwrap();
-        if Magic::from_bytes(magic).is_none() {
-            // Magic value is missing or not recognized, so this is not a header.
-            return Ok(None);
-        }
-
-        // The data contains a header, so make sure it's of appropriate length.
-        if data.len() < Self::SIZE {
-            return Err(Error::HeaderTooShort);
-        }
-
-        let timestamp = data[4..8].try_into().unwrap();
-        let date = data[8..22].try_into().unwrap();
-        let version = data[22..42].try_into().unwrap();
-        let firmware_size = data[42..46].try_into().unwrap();
-        let pubkey1 = data[46..79].try_into().unwrap();
-        let signature1 = data[79..143].try_into().unwrap();
-        let pubkey2 = data[143..176].try_into().unwrap();
-        let signature2 = data[176..240].try_into().unwrap();
-
-        // When parsing an existing header, there should always be at least one
-        // signature.
-        if signature1 == [0; 64] && signature2 == [0; 64] {
-            return Err(Error::HeaderWithNoSignature);
-        }
-
-        Ok(Some(Self {
-            magic,
-            timestamp,
-            date,
-            version,
-            firmware_size,
-            pubkey1,
-            signature1,
-            pubkey2,
-            signature2,
-            hash: [0; 32],
-            fw_hash: [0; 32],
-        }))
-    }
-
-    /// Parse a header from a reader.
+    /// Parse a header.
     ///
     /// Verifies that any existing signatures are signed by the given known
     /// signers. If the known signers slice is empty, any signer is
@@ -237,12 +194,18 @@ impl Header {
     pub fn parse(
         data: &[u8],
         known_signers: &[[u8; 33]],
-        sha: &mut impl Sha256,
+        sha: &impl Sha256,
         secp: &impl Secp256k1Verify,
     ) -> Result<Option<Self>, Error> {
-        let Some(mut header) = Header::read(data)? else {
+        let Some(mut header) = Header::deserialize(data)? else {
             return Ok(None);
         };
+
+        // When parsing an existing header, there should always be at least one
+        // signature.
+        if header.signature1 == [0; 64] && header.signature2 == [0; 64] {
+            return Err(Error::HeaderWithNoSignature);
+        }
 
         let reserved = &data[240..Self::SIZE];
         let firmware = &data[Self::SIZE..];
@@ -255,6 +218,19 @@ impl Header {
             return Err(Error::InvalidReservedBytes);
         }
 
+        Ok(Some(header))
+    }
+
+    /// Reads the header without verifying the signatures. Be careful with
+    /// trusting the unverified data.
+    ///
+    /// Use the [`parse`](Header::parse) method to read and verify the header
+    /// signatures.
+    pub fn parse_unverified(data: &[u8]) -> Result<Option<Self>, Error> {
+        let Some(header) = Self::deserialize(data)? else {
+            return Ok(None);
+        };
+        header.validate_fields(&data[Self::SIZE..])?;
         Ok(Some(header))
     }
 
@@ -299,8 +275,51 @@ impl Header {
         Ok(())
     }
 
+    /// Deserialize the header fields from a buffer.
+    ///
+    /// Returns `None` if the buffer does not contain a header.
+    fn deserialize(data: &[u8]) -> Result<Option<Self>, Error> {
+        if data.len() < 4 {
+            return Ok(None);
+        }
+
+        let magic = data[..4].try_into().unwrap();
+        if Magic::from_bytes(magic).is_none() {
+            // Magic value is missing or not recognized, so this is not a header.
+            return Ok(None);
+        }
+
+        // The data contains a header, so make sure it's of appropriate length.
+        if data.len() < Self::SIZE {
+            return Err(Error::HeaderTooShort);
+        }
+
+        let timestamp = data[4..8].try_into().unwrap();
+        let date = data[8..22].try_into().unwrap();
+        let version = data[22..42].try_into().unwrap();
+        let firmware_size = data[42..46].try_into().unwrap();
+        let pubkey1 = data[46..79].try_into().unwrap();
+        let signature1 = data[79..143].try_into().unwrap();
+        let pubkey2 = data[143..176].try_into().unwrap();
+        let signature2 = data[176..240].try_into().unwrap();
+
+        Ok(Some(Self {
+            magic,
+            timestamp,
+            date,
+            version,
+            firmware_size,
+            pubkey1,
+            signature1,
+            pubkey2,
+            signature2,
+            hash: [0; 32],
+            firmware_hash: [0; 32],
+        }))
+    }
+
     /// Hash up the header and store it in the `hash` field.
-    fn hash(&mut self, reserved: &[u8], firmware: &[u8], sha: &mut impl Sha256) {
+    fn hash(&mut self, reserved: &[u8], firmware: &[u8], sha: &impl Sha256) {
         let mut hash_buf = [0; 128];
 
         // Fill header hash buf with header data
@@ -327,7 +346,7 @@ impl Header {
 
         // Hash twice to prevent length extension attacks
         self.hash = sha.hash(&hash);
-        self.fw_hash = firmware_hash;
+        self.firmware_hash = firmware_hash;
     }
 
     fn verify_signatures(
@@ -339,10 +358,9 @@ impl Header {
             if !known_signers.is_empty() && !known_signers.contains(&self.pubkey1) {
                 return Err(Error::UnknownPubkey1);
             }
-            if !matches!(
-                secp.verify_ecdsa(self.hash, self.signature1, self.pubkey1),
-                VerificationResult::Valid
-            ) {
+            if secp.verify_ecdsa(self.hash, self.signature1, self.pubkey1)
+                != VerificationResult::Valid
+            {
                 return Err(Error::InvalidSignature1);
             }
         }
@@ -350,10 +368,9 @@ impl Header {
             if !known_signers.is_empty() && !known_signers.contains(&self.pubkey2) {
                 return Err(Error::UnknownPubkey2);
             }
-            if !matches!(
-                secp.verify_ecdsa(self.hash, self.signature2, self.pubkey2),
-                VerificationResult::Valid
-            ) {
+            if secp.verify_ecdsa(self.hash, self.signature2, self.pubkey2)
+                != VerificationResult::Valid
+            {
                 return Err(Error::InvalidSignature2);
             }
         }
@@ -361,7 +378,7 @@ impl Header {
     }
 
     /// Validate the fields in the header.
-    fn validate_fields(&mut self, firmware: &[u8]) -> Result<(), Error> {
+    fn validate_fields(&self, firmware: &[u8]) -> Result<(), Error> {
         // Validate that the version string is UTF-8 formatted according to SemVer, and
         // that the unused bytes are all zero.
         let first_zero = self
@@ -371,10 +388,8 @@ impl Header {
             .unwrap_or(self.version.len());
         let version = core::str::from_utf8(&self.version[..first_zero])
             .map_err(|_| Error::InvalidVersionUtf8)?;
-        #[cfg(feature = "with_semver")]
-        {
-            semver::Version::from_str(version).map_err(|_| Error::InvalidVersionSemver)?;
-        }
+        #[cfg(feature = "semver")]
+        semver::Version::from_str(version).map_err(|_| Error::InvalidVersionSemver)?;
         if self.version[first_zero..].iter().any(|&b| b != 0) {
             return Err(Error::InvalidVersionTrailingBytes);
         }
@@ -452,12 +467,6 @@ impl Header {
         self.version[..version.len()].copy_from_slice(version.as_bytes());
         Ok(())
     }
-
-    /// Returns firmware hash calculated during the parsing/verification
-    /// process.
-    pub fn fw_hash(&self) -> &[u8; 32] {
-        &self.fw_hash
-    }
 }
 
 /// Who is signing the firmware.
@@ -485,14 +494,14 @@ pub enum Magic {
 impl Magic {
     pub fn from_bytes(b: [u8; 4]) -> Option<Self> {
         match b {
-            [0x78, 0x56, 0x34, 0x12] => Some(Self::Atsama5d27KeyOs),
+            [0x50, 0x52, 0x4D, 0x31] => Some(Self::Atsama5d27KeyOs),
             _ => None,
         }
     }
 
-    pub fn as_bytes(&self) -> [u8; 4] {
+    pub fn to_bytes(&self) -> [u8; 4] {
         match self {
-            Self::Atsama5d27KeyOs => [0x78, 0x56, 0x34, 0x12],
+            Self::Atsama5d27KeyOs => [0x50, 0x52, 0x4D, 0x31],
         }
     }
 }

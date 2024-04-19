@@ -15,6 +15,24 @@ mod args;
 mod tests;
 
 fn main() -> std::process::ExitCode {
+    let secret_key_1 = secp256k1::SecretKey::from_slice(&[
+        179, 247, 133, 163, 184, 180, 209, 161, 233, 126, 194, 120, 45, 26, 250, 143, 64, 119, 101,
+        149, 172, 118, 133, 137, 226, 24, 197, 114, 168, 129, 207, 187,
+    ])
+    .unwrap();
+    let secret_key_2 = secp256k1::SecretKey::from_slice(&[
+        165, 173, 224, 118, 144, 45, 243, 15, 146, 156, 153, 56, 237, 13, 159, 208, 66, 208, 36,
+        143, 167, 240, 247, 115, 34, 1, 44, 218, 27, 221, 123, 244,
+    ])
+    .unwrap();
+    let secp = secp256k1::Secp256k1::new();
+    let public_key_1 = secret_key_1.public_key(&secp);
+    let public_key_2 = secret_key_2.public_key(&secp);
+    println!("public key 1 bytes {:?}", public_key_1.serialize());
+    println!("public key 1 hex {}", hex::encode(public_key_1.serialize()));
+    println!("public key 2 bytes {:?}", public_key_2.serialize());
+    println!("public key 2 hex {}", hex::encode(public_key_2.serialize()));
+
     main_args(
         std::env::args_os(),
         &mut std::io::stdout(),
@@ -57,7 +75,7 @@ where
             match cosign2::Header::parse(
                 &input_buf,
                 &[],
-                &mut Sha256::default(),
+                &Sha256,
                 &Secp256k1Verify::default(),
             )? {
                 Some(header) => {
@@ -206,7 +224,7 @@ where
             let (header, mut firmware) = match cosign2::Header::parse(
                 &input_buf,
                 known_pubkeys.as_slice(),
-                &mut Sha256::default(),
+                &Sha256,
                 &Secp256k1Verify::default(),
             )? {
                 // If a header is present, add a second signature.
@@ -245,7 +263,7 @@ where
                             cosign2::Signer::Trusted
                         },
                         &input_buf,
-                        &mut Sha256::default(),
+                        &Sha256,
                         &Secp256k1Sign::new(secret),
                     )?;
                     (header, input_buf.as_slice())
@@ -283,7 +301,7 @@ where
             cosign2::Header::parse(
                 &output_buf,
                 &known_pubkeys,
-                &mut Sha256::default(),
+                &Sha256,
                 &Secp256k1Verify::default(),
             )
             .map_err(Error::ParseOutputFile)?
@@ -321,12 +339,9 @@ impl cosign2::Secp256k1Sign for Secp256k1Sign {
 }
 
 #[derive(Debug, Default)]
-struct Secp256k1Verify(
-    #[cfg(not(feature = "micro-ecc-verify"))] secp256k1::Secp256k1<secp256k1::All>,
-);
+struct Secp256k1Verify(secp256k1::Secp256k1<secp256k1::All>);
 
 impl cosign2::Secp256k1Verify for Secp256k1Verify {
-    #[cfg(not(feature = "micro-ecc-verify"))]
     fn verify_ecdsa(
         &self,
         msg: [u8; 32],
@@ -351,60 +366,14 @@ impl cosign2::Secp256k1Verify for Secp256k1Verify {
             VerificationResult::Invalid
         }
     }
-
-    #[cfg(feature = "micro-ecc-verify")]
-    fn verify_ecdsa(
-        &self,
-        msg: [u8; 32],
-        signature: [u8; 64],
-        pubkey: [u8; 33],
-    ) -> VerificationResult {
-        let mut uncompressed_pk = [0; 64];
-
-        unsafe {
-            micro_ecc_sys::uECC_decompress(
-                pubkey.as_ptr(),
-                uncompressed_pk.as_mut_ptr(),
-                micro_ecc_sys::uECC_secp256k1(),
-            )
-        };
-
-        let res = unsafe {
-            micro_ecc_sys::uECC_valid_public_key(
-                uncompressed_pk.as_ptr(),
-                micro_ecc_sys::uECC_secp256k1(),
-            )
-        };
-        if res != 1 {
-            return VerificationResult::Invalid;
-        }
-
-        let res = unsafe {
-            micro_ecc_sys::uECC_verify(
-                uncompressed_pk.as_ptr(),
-                msg.as_ptr(),
-                msg.len() as u32,
-                signature.as_ptr(),
-                micro_ecc_sys::uECC_secp256k1(),
-            )
-        };
-
-        if res == 1 {
-            VerificationResult::Valid
-        } else {
-            VerificationResult::Invalid
-        }
-    }
 }
 
 #[derive(Debug, Default)]
-struct Sha256 {}
+struct Sha256;
 
 impl cosign2::Sha256 for Sha256 {
-    fn hash(&mut self, data: &[u8]) -> [u8; 32] {
-        let mut hasher = sha2::Sha256::new();
-        hasher.update(data);
-        hasher.finalize().into()
+    fn hash(&self, data: &[u8]) -> [u8; 32] {
+        sha2::Sha256::digest(data).into()
     }
 }
 
@@ -512,8 +481,8 @@ impl std::fmt::Display for Error {
                 write!(
                     f,
                     "unexpected magic in header {}, expected {}",
-                    hex::encode(header.as_bytes()),
-                    hex::encode(expected.as_bytes())
+                    hex::encode(header.to_bytes()),
+                    hex::encode(expected.to_bytes())
                 )
             }
             Error::MoveTempFile(e) => write!(f, "failed to move temporary file to output: {e}"),

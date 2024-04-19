@@ -8,5 +8,5 @@ chrono = { version = "0.4", default-features = false }
 semver = { version = "1.0", default-features = false, optional = true }
 
 [features]
-with_semver = ["semver"]
-default = ["with_semver"]
+semver = ["dep:semver"]
+default = ["semver"]
