@@ -5,4 +5,8 @@ edition = "2021"
 
 [dependencies]
 chrono = { version = "0.4", default-features = false }
-semver = { version = "1.0", default-features = false }
+semver = { version = "1.0", default-features = false, optional = true }
+
+[features]
+semver = ["dep:semver"]
+default = ["semver"]

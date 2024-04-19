@@ -23,19 +23,20 @@ impl crate::Secp256k1Sign for Secp256k1Sign {
 struct Secp256k1Verify;
 
 impl crate::Secp256k1Verify for Secp256k1Verify {
-    fn verify_ecdsa(&self, _msg: [u8; 32], _sig: [u8; 64], _pubkey: [u8; 33]) -> bool {
-        true
+    fn verify_ecdsa(
+        &self,
+        _msg: [u8; 32],
+        _sig: [u8; 64],
+        _pubkey: [u8; 33],
+    ) -> VerificationResult {
+        VerificationResult::Valid
     }
 }
 
 struct Sha256;
 
 impl crate::Sha256 for Sha256 {
-    fn start(&mut self) {}
-
-    fn update(&mut self, _data: &[u8]) {}
-
-    fn finish(&mut self) -> [u8; 32] {
+    fn hash(&self, _data: &[u8]) -> [u8; 32] {
         [1; 32]
     }
 }
@@ -49,14 +50,14 @@ fn developer_singing() {
         firmware.len().try_into().unwrap(),
         Signer::Developer,
         &firmware[..],
-        &mut Sha256,
+        &Sha256,
         &Secp256k1Sign(PUBKEY2),
     )
     .unwrap();
     let mut buf = [0u8; Header::SIZE + 4];
     header.serialize(&mut buf).unwrap();
     buf[Header::SIZE..].copy_from_slice(&firmware);
-    let parsed = Header::parse(&buf[..], &[PUBKEY2], &mut Sha256, &Secp256k1Verify)
+    let parsed = Header::parse(&buf[..], &[PUBKEY2], &Sha256, &Secp256k1Verify)
         .unwrap()
         .unwrap();
 
@@ -72,15 +73,15 @@ fn developer_singing() {
     assert_eq!(header.signature2(), parsed.signature2());
 
     // The signing procedure filled in the correct field.
-    assert!(header.pubkey1() == [0; 33]);
-    assert!(header.signature1() == [0; 64]);
-    assert!(header.pubkey2() != [0; 33]);
-    assert!(header.signature2() != [0; 64]);
+    assert_eq!(header.pubkey1(), [0; 33]);
+    assert_eq!(header.signature1(), [0; 64]);
+    assert_ne!(header.pubkey2(), [0; 33]);
+    assert_ne!(header.signature2(), [0; 64]);
 
     // The binary representation is correct.
     assert_eq!(buf.len(), Header::SIZE + firmware.len());
     // Magic number.
-    assert_eq!(buf[..4], [0x78, 0x56, 0x34, 0x12]);
+    assert_eq!(buf[..4], [0x50, 0x52, 0x4D, 0x31]);
     // Timestamp.
     assert_eq!(buf[4..8], header.timestamp().to_le_bytes(),);
     // Date.
@@ -119,14 +120,14 @@ fn trusted_singing() {
         firmware.len().try_into().unwrap(),
         Signer::Trusted,
         &firmware[..],
-        &mut Sha256,
+        &Sha256,
         &Secp256k1Sign(PUBKEY1),
     )
     .unwrap();
     let mut buf = [0u8; Header::SIZE + 4];
     header.serialize(&mut buf).unwrap();
     buf[Header::SIZE..].copy_from_slice(&firmware);
-    let parsed = Header::parse(&buf[..], &[PUBKEY1], &mut Sha256, &Secp256k1Verify)
+    let parsed = Header::parse(&buf[..], &[PUBKEY1], &Sha256, &Secp256k1Verify)
         .unwrap()
         .unwrap();
 
@@ -142,15 +143,15 @@ fn trusted_singing() {
     assert_eq!(header.signature2(), parsed.signature2());
 
     // The signing procedure filled in the correct field.
-    assert!(header.pubkey1() != [0; 33]);
-    assert!(header.signature1() != [0; 64]);
-    assert!(header.pubkey2() == [0; 33]);
-    assert!(header.signature2() == [0; 64]);
+    assert_ne!(header.pubkey1(), [0; 33]);
+    assert_ne!(header.signature1(), [0; 64]);
+    assert_eq!(header.pubkey2(), [0; 33]);
+    assert_eq!(header.signature2(), [0; 64]);
 
     // The binary representation is correct.
     assert_eq!(buf.len(), Header::SIZE + firmware.len());
     // Magic number.
-    assert_eq!(buf[..4], [0x78, 0x56, 0x34, 0x12]);
+    assert_eq!(buf[..4], [0x50, 0x52, 0x4D, 0x31]);
     // Timestamp.
     assert_eq!(buf[4..8], header.timestamp().to_le_bytes());
     // Date.
@@ -187,7 +188,7 @@ fn trusted_singing() {
     let mut buf = [0u8; Header::SIZE + 4];
     header.serialize(&mut buf).unwrap();
     buf[Header::SIZE..].copy_from_slice(&firmware);
-    let parsed = Header::parse(&buf[..], &[PUBKEY1, PUBKEY2], &mut Sha256, &Secp256k1Verify)
+    let parsed = Header::parse(&buf[..], &[PUBKEY1, PUBKEY2], &Sha256, &Secp256k1Verify)
         .unwrap()
         .unwrap();
 
@@ -203,15 +204,15 @@ fn trusted_singing() {
     assert_eq!(header.signature2(), parsed.signature2());
 
     // The signing procedure filled in the correct fields.
-    assert!(header.pubkey1() != [0; 33]);
-    assert!(header.signature1() != [0; 64]);
-    assert!(header.pubkey2() != [0; 33]);
-    assert!(header.signature2() != [0; 64]);
+    assert_ne!(header.pubkey1(), [0; 33]);
+    assert_ne!(header.signature1(), [0; 64]);
+    assert_ne!(header.pubkey2(), [0; 33]);
+    assert_ne!(header.signature2(), [0; 64]);
 
     // The binary representation is correct.
     assert_eq!(buf.len(), Header::SIZE + firmware.len());
     // Magic number.
-    assert_eq!(buf[..4], [0x78, 0x56, 0x34, 0x12]);
+    assert_eq!(buf[..4], [0x50, 0x52, 0x4D, 0x31]);
     // Timestamp.
     assert_eq!(buf[4..8], header.timestamp().to_le_bytes());
     // Date.

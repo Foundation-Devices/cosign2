@@ -1,10 +1,10 @@
 use {
     colored::Colorize,
+    cosign2::VerificationResult,
     sha2::Digest,
     std::{
         ffi::OsString,
         io::{Read, Seek, Write},
-        mem,
         path::{Path, PathBuf},
     },
 };
@@ -54,12 +54,7 @@ where
                 .map_err(Error::OpenInputFile)?
                 .read_to_end(&mut input_buf)
                 .map_err(Error::ReadInputFile)?;
-            match cosign2::Header::parse(
-                &input_buf,
-                &[],
-                &mut Sha256::default(),
-                &Secp256k1Verify::default(),
-            )? {
+            match cosign2::Header::parse(&input_buf, &[], &Sha256, &Secp256k1Verify::default())? {
                 Some(header) => {
                     let magic = match header.magic() {
                         cosign2::Magic::Atsama5d27KeyOs => "atsama5d27-keyos",
@@ -201,7 +196,7 @@ where
             let (header, mut firmware) = match cosign2::Header::parse(
                 &input_buf,
                 known_pubkeys.as_slice(),
-                &mut Sha256::default(),
+                &Sha256,
                 &Secp256k1Verify::default(),
             )? {
                 // If a header is present, add a second signature.
@@ -239,7 +234,7 @@ where
                             cosign2::Signer::Trusted
                         },
                         &input_buf,
-                        &mut Sha256::default(),
+                        &Sha256,
                         &Secp256k1Sign::new(secret),
                     )?;
                     (header, input_buf.as_slice())
@@ -277,7 +272,7 @@ where
             cosign2::Header::parse(
                 &output_buf,
                 &known_pubkeys,
-                &mut Sha256::default(),
+                &Sha256,
                 &Secp256k1Verify::default(),
             )
             .map_err(Error::ParseOutputFile)?
@@ -318,34 +313,38 @@ impl cosign2::Secp256k1Sign for Secp256k1Sign {
 struct Secp256k1Verify(secp256k1::Secp256k1<secp256k1::All>);
 
 impl cosign2::Secp256k1Verify for Secp256k1Verify {
-    fn verify_ecdsa(&self, msg: [u8; 32], signature: [u8; 64], pubkey: [u8; 33]) -> bool {
+    fn verify_ecdsa(
+        &self,
+        msg: [u8; 32],
+        signature: [u8; 64],
+        pubkey: [u8; 33],
+    ) -> VerificationResult {
         let Ok(pubkey) = secp256k1::PublicKey::from_slice(&pubkey) else {
-            return false;
+            return VerificationResult::Invalid;
         };
-        self.0
+
+        if self
+            .0
             .verify_ecdsa(
                 &secp256k1::Message::from_digest(msg),
                 &secp256k1::ecdsa::Signature::from_compact(&signature).expect("64 bytes"),
                 &pubkey,
             )
             .is_ok()
+        {
+            VerificationResult::Valid
+        } else {
+            VerificationResult::Invalid
+        }
     }
 }
 
 #[derive(Debug, Default)]
-struct Sha256(sha2::Sha256);
+struct Sha256;
 
 impl cosign2::Sha256 for Sha256 {
-    fn start(&mut self) {
-        self.0 = sha2::Sha256::new();
-    }
-
-    fn update(&mut self, data: &[u8]) {
-        self.0.update(data);
-    }
-
-    fn finish(&mut self) -> [u8; 32] {
-        mem::take(&mut self.0).finalize().into()
+    fn hash(&self, data: &[u8]) -> [u8; 32] {
+        sha2::Sha256::digest(data).into()
     }
 }
 
@@ -453,8 +452,8 @@ impl std::fmt::Display for Error {
                 write!(
                     f,
                     "unexpected magic in header {}, expected {}",
-                    hex::encode(header.as_bytes()),
-                    hex::encode(expected.as_bytes())
+                    hex::encode(header.to_bytes()),
+                    hex::encode(expected.to_bytes())
                 )
             }
             Error::MoveTempFile(e) => write!(f, "failed to move temporary file to output: {e}"),
