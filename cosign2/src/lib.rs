@@ -1,6 +1,6 @@
 #![no_std]
 
-use {chrono::Datelike, core::str::FromStr};
+use chrono::Datelike;
 
 #[cfg(test)]
 mod tests;
@@ -386,10 +386,10 @@ impl Header {
             .iter()
             .position(|&b| b == 0)
             .unwrap_or(self.version.len());
-        let version = core::str::from_utf8(&self.version[..first_zero])
+        let _version = core::str::from_utf8(&self.version[..first_zero])
             .map_err(|_| Error::InvalidVersionUtf8)?;
         #[cfg(feature = "semver")]
-        semver::Version::from_str(version).map_err(|_| Error::InvalidVersionSemver)?;
+        semver::Version::from_str(_version).map_err(|_| Error::InvalidVersionSemver)?;
         if self.version[first_zero..].iter().any(|&b| b != 0) {
             return Err(Error::InvalidVersionTrailingBytes);
         }
