@@ -1,5 +1,7 @@
 #![no_std]
 
+#[cfg(feature = "semver")]
+use core::str::FromStr;
 use chrono::Datelike;
 
 #[cfg(test)]
