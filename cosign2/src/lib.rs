@@ -2,6 +2,7 @@
 
 #[cfg(feature = "semver")]
 use core::str::FromStr;
+
 use chrono::Datelike;
 
 #[cfg(test)]
@@ -42,12 +43,7 @@ pub trait Secp256k1Sign {
 /// ECDSA secp256k1 verification.
 pub trait Secp256k1Verify {
     /// Verify an ECDSA signature against the given public key.
-    fn verify_ecdsa(
-        &self,
-        msg: [u8; 32],
-        signature: [u8; 64],
-        pubkey: [u8; 33],
-    ) -> VerificationResult;
+    fn verify_ecdsa(&self, msg: [u8; 32], signature: [u8; 64], pubkey: [u8; 33]) -> VerificationResult;
 }
 
 /// Verification result.
@@ -61,77 +57,52 @@ pub enum VerificationResult {
 }
 
 impl Header {
+    /// Number of reserved bytes at the end of the header.
+    pub const RESERVED: usize = 1808;
     /// Size of the header in bytes.
     pub const SIZE: usize = 2048;
 
-    /// Number of reserved bytes at the end of the header.
-    pub const RESERVED: usize = 1808;
-
     /// Magic number.
-    pub fn magic(&self) -> Magic {
-        Magic::from_bytes(self.magic).expect("validated")
-    }
+    pub fn magic(&self) -> Magic { Magic::from_bytes(self.magic).expect("validated") }
 
     /// Firmware timestamp in seconds since the Unix epoch.
-    pub fn timestamp(&self) -> u32 {
-        u32::from_le_bytes(self.timestamp)
-    }
+    pub fn timestamp(&self) -> u32 { u32::from_le_bytes(self.timestamp) }
 
     /// Human-readable firmware date.
     ///
     /// Used for displaying the firmware date during device boot, where advanced
     /// date manipulation functions are not available.
     pub fn date(&self) -> &str {
-        let first_zero = self
-            .date
-            .iter()
-            .position(|&b| b == 0)
-            .unwrap_or(self.date.len());
+        let first_zero = self.date.iter().position(|&b| b == 0).unwrap_or(self.date.len());
         core::str::from_utf8(&self.date[..first_zero]).expect("validated")
     }
 
     /// Firmware version.
     pub fn version(&self) -> &str {
-        let first_zero = self
-            .version
-            .iter()
-            .position(|&b| b == 0)
-            .unwrap_or(self.version.len());
+        let first_zero = self.version.iter().position(|&b| b == 0).unwrap_or(self.version.len());
         core::str::from_utf8(&self.version[..first_zero]).expect("validated")
     }
 
     /// The size of the firmware.
-    pub fn firmware_size(&self) -> u32 {
-        u32::from_le_bytes(self.firmware_size)
-    }
+    pub fn firmware_size(&self) -> u32 { u32::from_le_bytes(self.firmware_size) }
 
     /// Public key of the first signer.
-    pub fn pubkey1(&self) -> [u8; 33] {
-        self.pubkey1
-    }
+    pub fn pubkey1(&self) -> [u8; 33] { self.pubkey1 }
 
     /// First signature.
-    pub fn signature1(&self) -> [u8; 64] {
-        self.signature1
-    }
+    pub fn signature1(&self) -> [u8; 64] { self.signature1 }
 
     /// Public key of the second signer.
-    pub fn pubkey2(&self) -> [u8; 33] {
-        self.pubkey2
-    }
+    pub fn pubkey2(&self) -> [u8; 33] { self.pubkey2 }
 
     /// Second signature.
-    pub fn signature2(&self) -> [u8; 64] {
-        self.signature2
-    }
+    pub fn signature2(&self) -> [u8; 64] { self.signature2 }
 
     /// Hash of the firmware that this header is for.
     ///
     /// All zeros if the header was created using
     /// [`parse_unverified`](Header::parse_unverified).
-    pub fn firmware_hash(&self) -> &[u8; 32] {
-        &self.firmware_hash
-    }
+    pub fn firmware_hash(&self) -> &[u8; 32] { &self.firmware_hash }
 
     /// Create a new header and sign it.
     pub fn sign_new(
@@ -152,9 +123,7 @@ impl Header {
             timestamp: timestamp.to_le_bytes(),
             date: [0; 14],
             version: [0; 20],
-            firmware_size: u32::try_from(firmware.len())
-                .map_err(|_| Error::FirmwareTooLong)?
-                .to_le_bytes(),
+            firmware_size: u32::try_from(firmware.len()).map_err(|_| Error::FirmwareTooLong)?.to_le_bytes(),
             pubkey1: [0; 33],
             signature1: [0; 64],
             pubkey2: [0; 33],
@@ -165,7 +134,7 @@ impl Header {
         header.set_date(timestamp);
         header.set_version(version)?;
         header.hash(&[0; Self::RESERVED], firmware, sha);
-        header.validate_fields(firmware)?;
+        header.validate_fields(firmware, true)?;
 
         // Sign the header.
         match signer {
@@ -213,7 +182,7 @@ impl Header {
         let firmware = &data[Self::SIZE..];
         header.hash(reserved, firmware, sha);
         header.verify_signatures(known_signers, secp)?;
-        header.validate_fields(firmware)?;
+        header.validate_fields(firmware, true)?;
 
         // Check that the reserved bytes are all zero.
         if reserved.iter().any(|&b| b != 0) {
@@ -228,12 +197,14 @@ impl Header {
     ///
     /// Use the [`parse`](Header::parse) method to read and verify the header
     /// signatures.
-    pub fn parse_unverified(data: &[u8]) -> Result<Option<Self>, Error> {
+    pub fn parse_unverified(data: &[u8], check_size: bool) -> Result<Option<Self>, Error> {
         let Some(header) = Self::deserialize(data)? else {
             return Ok(None);
         };
-        header.validate_fields(&data[Self::SIZE..])?;
-        Ok(Some(header))
+        match header.validate_fields(&data[Self::SIZE..], check_size) {
+            Ok(()) => Ok(Some(header)),
+            Err(e) => Err(e),
+        }
     }
 
     /// Serialize the header to a buffer. Exactly [`Self::SIZE`] bytes will be
@@ -360,9 +331,7 @@ impl Header {
             if !known_signers.is_empty() && !known_signers.contains(&self.pubkey1) {
                 return Err(Error::UnknownPubkey1);
             }
-            if secp.verify_ecdsa(self.hash, self.signature1, self.pubkey1)
-                != VerificationResult::Valid
-            {
+            if secp.verify_ecdsa(self.hash, self.signature1, self.pubkey1) != VerificationResult::Valid {
                 return Err(Error::InvalidSignature1);
             }
         }
@@ -370,9 +339,7 @@ impl Header {
             if !known_signers.is_empty() && !known_signers.contains(&self.pubkey2) {
                 return Err(Error::UnknownPubkey2);
             }
-            if secp.verify_ecdsa(self.hash, self.signature2, self.pubkey2)
-                != VerificationResult::Valid
-            {
+            if secp.verify_ecdsa(self.hash, self.signature2, self.pubkey2) != VerificationResult::Valid {
                 return Err(Error::InvalidSignature2);
             }
         }
@@ -380,16 +347,12 @@ impl Header {
     }
 
     /// Validate the fields in the header.
-    fn validate_fields(&self, firmware: &[u8]) -> Result<(), Error> {
+    fn validate_fields(&self, firmware: &[u8], check_size: bool) -> Result<(), Error> {
         // Validate that the version string is UTF-8 formatted according to SemVer, and
         // that the unused bytes are all zero.
-        let first_zero = self
-            .version
-            .iter()
-            .position(|&b| b == 0)
-            .unwrap_or(self.version.len());
-        let _version = core::str::from_utf8(&self.version[..first_zero])
-            .map_err(|_| Error::InvalidVersionUtf8)?;
+        let first_zero = self.version.iter().position(|&b| b == 0).unwrap_or(self.version.len());
+        let _version =
+            core::str::from_utf8(&self.version[..first_zero]).map_err(|_| Error::InvalidVersionUtf8)?;
         #[cfg(feature = "semver")]
         semver::Version::from_str(_version).map_err(|_| Error::InvalidVersionSemver)?;
         if self.version[first_zero..].iter().any(|&b| b != 0) {
@@ -398,25 +361,22 @@ impl Header {
 
         // Validate that the date string is UTF-8, and that the unused bytes are all
         // zero.
-        let first_zero = self
-            .date
-            .iter()
-            .position(|&b| b == 0)
-            .unwrap_or(self.date.len());
+        let first_zero = self.date.iter().position(|&b| b == 0).unwrap_or(self.date.len());
         core::str::from_utf8(&self.date[..first_zero]).map_err(|_| Error::InvalidDateUtf8)?;
         if self.date[first_zero..].iter().any(|&b| b != 0) {
             return Err(Error::InvalidDateTrailingBytes);
         }
 
-        // Verify that the firmware size is correct.
-        let firmware_size = u32::from_le_bytes(self.firmware_size);
-        let actual_firmware_size =
-            u32::try_from(firmware.len()).map_err(|_| Error::FirmwareTooLong)?;
-        if firmware_size != actual_firmware_size {
-            return Err(Error::InvalidFirmwareSize {
-                header: firmware_size,
-                actual: actual_firmware_size,
-            });
+        // Verify that the firmware size is correct if requested
+        if check_size {
+            let firmware_size = u32::from_le_bytes(self.firmware_size);
+            let actual_firmware_size = u32::try_from(firmware.len()).map_err(|_| Error::FirmwareTooLong)?;
+            if firmware_size != actual_firmware_size {
+                return Err(Error::InvalidFirmwareSize {
+                    header: firmware_size,
+                    actual: actual_firmware_size,
+                });
+            }
         }
 
         // If a signature is zero, the corresponding pubkey must also be zero.
@@ -561,13 +521,9 @@ impl core::fmt::Display for Error {
             Self::HeaderWithNoSignature => write!(f, "header with no signature"),
             Self::InvalidDateTrailingBytes => write!(f, "invalid date trailing bytes in header"),
             Self::InvalidDateUtf8 => write!(f, "invalid date UTF-8 in header"),
-            Self::InvalidFirmwareSize {
-                header: in_header,
-                actual,
-            } => write!(
-                f,
-                "invalid firmware size in header: should be {actual}, but is {in_header}",
-            ),
+            Self::InvalidFirmwareSize { header: in_header, actual } => {
+                write!(f, "invalid firmware size in header: should be {actual}, but is {in_header}",)
+            }
             Self::InvalidPubkey1 => write!(f, "invalid pubkey1 in header"),
             Self::InvalidPubkey2 => write!(f, "invalid pubkey2 in header"),
             Self::InvalidReservedBytes => write!(f, "invalid reserved bytes in header"),
