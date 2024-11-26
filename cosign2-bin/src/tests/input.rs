@@ -61,7 +61,7 @@ pub struct Input {
     pub signature1: [u8; 64],
     pub pubkey2: [u8; 33],
     pub signature2: [u8; 64],
-    pub reserved: [u8; cosign2::Header::RESERVED],
+    pub reserved: [u8; 1024-240],
     pub firmware: Vec<u8>,
 }
 
@@ -69,7 +69,7 @@ impl Params {
     pub fn input(mut self) -> Input {
         self.date.resize(14, 0);
         self.version.resize(20, 0);
-        self.reserved.resize(cosign2::Header::RESERVED, 0);
+        self.reserved.resize(1024-240, 0);
         let mut input = Input {
             magic: if self.magic {
                 [0x50, 0x52, 0x4D, 0x31]

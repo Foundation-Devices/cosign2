@@ -10,7 +10,7 @@ mod input;
 #[test]
 fn dump_no_header() {
     let file = create_file(b"Hello, world!");
-    let output = test(["dump", "-i", file.path().to_str().unwrap()]);
+    let output = test(["dump", "-i", file.path().to_str().unwrap(), "--header-size", "1024"]);
     assert_eq!(output.exit_code, ExitCode(0));
     assert!(output.stdout.contains("no header"));
     assert!(output.stderr.is_empty());
@@ -33,7 +33,7 @@ fn dump_valid_header_one_signature() {
     .input()
     .create_file();
     let (sig1_half_1, sig1_half_2) = sig1.split_at(sig1.len() / 2);
-    let output = test(["dump", "-i", file.path().to_str().unwrap()]);
+    let output = test(["dump", "-i", file.path().to_str().unwrap(), "--header-size", "1024"]);
     assert_eq!(output.exit_code, ExitCode(0));
 
     // Prints magic value.
@@ -84,7 +84,7 @@ fn dump_valid_header_two_signatures() {
     .create_file();
     let (sig1_half_1, sig1_half_2) = sig1.split_at(sig1.len() / 2);
     let (sig2_half_1, sig2_half_2) = sig2.split_at(sig2.len() / 2);
-    let output = test(["dump", "-i", file.path().to_str().unwrap()]);
+    let output = test(["dump", "-i", file.path().to_str().unwrap(), "--header-size", "1024"]);
     assert_eq!(output.exit_code, ExitCode(0));
 
     // Prints magic value.
@@ -130,7 +130,7 @@ fn dump_invalid_magic() {
     }
     .input()
     .create_file();
-    let output = test(["dump", "-i", file.path().to_str().unwrap()]);
+    let output = test(["dump", "-i", file.path().to_str().unwrap(), "--header-size", "1024"]);
     assert_eq!(output.exit_code, ExitCode(0));
     assert!(output.stdout.contains("no header"));
     assert!(output.stderr.is_empty());
@@ -176,7 +176,7 @@ fn dump_invalid_changed_fields() {
         .input()
         .update(case)
         .create_file();
-        let output = test(["dump", "-i", file.path().to_str().unwrap()]);
+        let output = test(["dump", "-i", file.path().to_str().unwrap(), "--header-size", "1024"]);
         assert_eq!(output.exit_code, ExitCode(1));
         assert!(output.stdout.is_empty());
         assert!(output.stderr.contains("invalid signature1"));
@@ -202,7 +202,7 @@ fn dump_invalid_header_invalid_pubkey1() {
         input.pubkey1[5] = 0xFF;
     })
     .create_file();
-    let output = test(["dump", "-i", file.path().to_str().unwrap()]);
+    let output = test(["dump", "-i", file.path().to_str().unwrap(), "--header-size", "1024"]);
     assert_eq!(output.exit_code, ExitCode(1));
     assert!(output.stdout.is_empty());
     assert!(output.stderr.contains("invalid signature1"));
@@ -227,7 +227,7 @@ fn dump_invalid_header_invalid_pubkey2() {
         input.pubkey2[5] = 0xFF;
     })
     .create_file();
-    let output = test(["dump", "-i", file.path().to_str().unwrap()]);
+    let output = test(["dump", "-i", file.path().to_str().unwrap(), "--header-size", "1024"]);
     assert_eq!(output.exit_code, ExitCode(1));
     assert!(output.stdout.is_empty());
     assert!(output.stderr.contains("invalid signature2"));
@@ -252,7 +252,7 @@ fn dump_invalid_header_invalid_signature1() {
         input.signature1[5] = 0xDB;
     })
     .create_file();
-    let output = test(["dump", "-i", file.path().to_str().unwrap()]);
+    let output = test(["dump", "-i", file.path().to_str().unwrap(), "--header-size", "1024"]);
     assert_eq!(output.exit_code, ExitCode(1));
     assert!(output.stdout.is_empty());
     assert!(output.stderr.contains("invalid signature1"));
@@ -277,7 +277,7 @@ fn dump_invalid_header_invalid_signature2() {
         input.signature2[5] = 0xDB;
     })
     .create_file();
-    let output = test(["dump", "-i", file.path().to_str().unwrap()]);
+    let output = test(["dump", "-i", file.path().to_str().unwrap(), "--header-size", "1024"]);
     assert_eq!(output.exit_code, ExitCode(1));
     assert!(output.stdout.is_empty());
     assert!(output.stderr.contains("invalid signature2"));
@@ -296,6 +296,8 @@ fn sign_with_trusted_keys() {
         secret_pem.path().to_str().unwrap(),
         "-i",
         input_file.path().to_str().unwrap(),
+        "--header-size",
+        "1024",
         "--firmware-version",
         "1.2.4-alpha1",
         "--target",
@@ -308,7 +310,7 @@ fn sign_with_trusted_keys() {
     assert!(output.stdout.is_empty());
     assert!(output.stderr.is_empty());
 
-    let output = test(["dump", "-i", output_file.path().to_str().unwrap()]);
+    let output = test(["dump", "-i", output_file.path().to_str().unwrap(), "--header-size", "1024"]);
 
     assert_eq!(output.exit_code, ExitCode(0));
     assert!(output.stdout.contains("atsama5d27-keyos"));
@@ -329,6 +331,8 @@ fn sign_with_trusted_keys() {
         secret_pem.path().to_str().unwrap(),
         "-i",
         output_file.path().to_str().unwrap(),
+        "--header-size",
+        "1024",
         "--target",
         "atsama5d27-keyos",
         "-o",
@@ -339,7 +343,7 @@ fn sign_with_trusted_keys() {
     assert!(output.stdout.is_empty());
     assert!(output.stderr.is_empty());
 
-    let output = test(["dump", "-i", final_output_file.path().to_str().unwrap()]);
+    let output = test(["dump", "-i", final_output_file.path().to_str().unwrap(), "--header-size", "1024"]);
 
     assert_eq!(output.exit_code, ExitCode(0));
     assert!(output.stdout.contains("atsama5d27-keyos"));
@@ -394,6 +398,8 @@ fn sign_with_trusted_key_from_config() {
         "sign",
         "-i",
         input_file.path().to_str().unwrap(),
+        "--header-size",
+        "1024",
         "--config",
         config_file.path().to_str().unwrap(),
         "-o",
@@ -404,7 +410,7 @@ fn sign_with_trusted_key_from_config() {
     assert!(output.stdout.is_empty());
     assert!(output.stderr.is_empty());
 
-    let output = test(["dump", "-i", output_file.path().to_str().unwrap()]);
+    let output = test(["dump", "-i", output_file.path().to_str().unwrap(), "--header-size", "1024"]);
 
     assert_eq!(output.exit_code, ExitCode(0));
     assert!(output.stdout.contains("atsama5d27-keyos"));
@@ -457,6 +463,8 @@ fn pubkey_in_config_and_cli() {
         input::PUBKEY_1_HEX,
         "-i",
         input_file.path().to_str().unwrap(),
+        "--header-size",
+        "1024",
         "--target",
         "atsama5d27-keyos",
         "-o",
@@ -511,6 +519,8 @@ fn secret_in_config_and_cli() {
         input::PUBKEY_1_HEX,
         "-i",
         input_file.path().to_str().unwrap(),
+        "--header-size",
+        "1024",
         "--target",
         "atsama5d27-keyos",
         "-o",
@@ -566,6 +576,8 @@ fn known_pubkeys_in_config_and_cli() {
         input::PUBKEY_1_HEX,
         "-i",
         input_file.path().to_str().unwrap(),
+        "--header-size",
+        "1024",
         "--target",
         "atsama5d27-keyos",
         "-o",
@@ -619,6 +631,8 @@ fn target_in_config_and_cli() {
         input::PUBKEY_1_HEX,
         "-i",
         input_file.path().to_str().unwrap(),
+        "--header-size",
+        "1024",
         "--target",
         "atsama5d27-keyos",
         "-o",
@@ -652,6 +666,8 @@ fn sign_with_developer_key() {
         secret_pem.path().to_str().unwrap(),
         "-i",
         input_file.path().to_str().unwrap(),
+        "--header-size",
+        "1024",
         "--firmware-version",
         "1.2.4-alpha1",
         "--target",
@@ -664,7 +680,7 @@ fn sign_with_developer_key() {
     assert!(output.stdout.is_empty());
     assert!(output.stderr.is_empty());
 
-    let output = test(["dump", "-i", output_file.path().to_str().unwrap()]);
+    let output = test(["dump", "-i", output_file.path().to_str().unwrap(), "--header-size", "1024"]);
 
     assert_eq!(output.exit_code, ExitCode(0));
     assert!(output.stdout.contains("atsama5d27-keyos"));
@@ -689,6 +705,8 @@ fn sign_with_developer_key_in_place() {
         secret_pem.path().to_str().unwrap(),
         "-i",
         input_file.path().to_str().unwrap(),
+        "--header-size",
+        "1024",
         "--firmware-version",
         "1.2.4-alpha1",
         "--target",
@@ -700,7 +718,7 @@ fn sign_with_developer_key_in_place() {
     assert!(output.stdout.is_empty());
     assert!(output.stderr.is_empty());
 
-    let output = test(["dump", "-i", input_file.path().to_str().unwrap()]);
+    let output = test(["dump", "-i", input_file.path().to_str().unwrap(), "--header-size", "1024"]);
 
     assert_eq!(output.exit_code, ExitCode(0));
     assert!(output.stdout.contains("atsama5d27-keyos"));
@@ -726,6 +744,8 @@ fn sign_with_developer_key_in_place_with_output_file() {
         secret_pem.path().to_str().unwrap(),
         "-i",
         input_file.path().to_str().unwrap(),
+        "--header-size",
+        "1024",
         "--firmware-version",
         "1.2.4-alpha1",
         "--target",
@@ -771,6 +791,8 @@ fn resign_with_developer_key() {
         secret_pem.path().to_str().unwrap(),
         "-i",
         input_file.path().to_str().unwrap(),
+        "--header-size",
+        "1024",
         "--target",
         "atsama5d27-keyos",
         "-o",
@@ -801,6 +823,8 @@ fn sign_pubkey_mismatch() {
         input::PUBKEY_1_HEX,
         "-i",
         input_file.path().to_str().unwrap(),
+        "--header-size",
+        "1024",
         "--target",
         "atsama5d27-keyos",
         "-o",
@@ -842,6 +866,8 @@ fn resign_with_trusted_key() {
         secret_pem.path().to_str().unwrap(),
         "-i",
         input_file.path().to_str().unwrap(),
+        "--header-size",
+        "1024",
         "--target",
         "atsama5d27-keyos",
         "-o",
@@ -880,6 +906,8 @@ fn sign_header_contains_unknown_pubkey() {
         secret_pem.path().to_str().unwrap(),
         "-i",
         input_file.path().to_str().unwrap(),
+        "--header-size",
+        "1024",
         "--target",
         "atsama5d27-keyos",
         "-o",
@@ -920,6 +948,8 @@ fn sign_header_with_unknown_pubkey() {
         secret_pem.path().to_str().unwrap(),
         "-i",
         input_file.path().to_str().unwrap(),
+        "--header-size",
+        "1024",
         "--target",
         "atsama5d27-keyos",
         "-o",
@@ -963,6 +993,8 @@ fn sign_header_with_known_pubkeys() {
         secret_pem.path().to_str().unwrap(),
         "-i",
         input_file.path().to_str().unwrap(),
+        "--header-size",
+        "1024",
         "--target",
         "atsama5d27-keyos",
         "-o",
@@ -1002,6 +1034,8 @@ fn sign_header_invalid_version_utf8() {
         secret_pem.path().to_str().unwrap(),
         "-i",
         input_file.path().to_str().unwrap(),
+        "--header-size",
+        "1024",
         "--target",
         "atsama5d27-keyos",
         "-o",
@@ -1037,6 +1071,8 @@ fn sign_header_invalid_version_semver() {
         secret_pem.path().to_str().unwrap(),
         "-i",
         input_file.path().to_str().unwrap(),
+        "--header-size",
+        "1024",
         "--target",
         "atsama5d27-keyos",
         "-o",
@@ -1072,6 +1108,8 @@ fn sign_header_invalid_date_utf8() {
         secret_pem.path().to_str().unwrap(),
         "-i",
         input_file.path().to_str().unwrap(),
+        "--header-size",
+        "1024",
         "--target",
         "atsama5d27-keyos",
         "-o",
@@ -1107,6 +1145,8 @@ fn sign_header_invalid_firmware_size() {
         secret_pem.path().to_str().unwrap(),
         "-i",
         input_file.path().to_str().unwrap(),
+        "--header-size",
+        "1024",
         "--target",
         "atsama5d27-keyos",
         "-o",

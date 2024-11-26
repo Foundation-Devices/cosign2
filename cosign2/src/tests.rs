@@ -44,6 +44,7 @@ impl crate::Sha256 for Sha256 {
 #[test]
 fn developer_singing() {
     let firmware = [0x01, 0x02, 0x03, 0x04];
+    const HEADER_SIZE: usize = 1024;
     let header = Header::sign_new(
         Magic::Atsama5d27KeyOs,
         "1.2.3",
@@ -52,14 +53,13 @@ fn developer_singing() {
         &firmware[..],
         &Sha256,
         &Secp256k1Sign(PUBKEY2),
+        HEADER_SIZE,
     )
     .unwrap();
-    let mut buf = [0u8; Header::SIZE + 4];
+    let mut buf = [0u8; HEADER_SIZE + 4];
     header.serialize(&mut buf).unwrap();
-    buf[Header::SIZE..].copy_from_slice(&firmware);
-    let parsed = Header::parse(&buf[..], &[PUBKEY2], &Sha256, &Secp256k1Verify)
-        .unwrap()
-        .unwrap();
+    buf[HEADER_SIZE..].copy_from_slice(&firmware);
+    let parsed = Header::parse(&buf[..], &[PUBKEY2], &Sha256, &Secp256k1Verify, HEADER_SIZE).unwrap().unwrap();
 
     // The parsed header is the same as the serialized header.
     assert_eq!(header.magic(), parsed.magic());
@@ -79,7 +79,7 @@ fn developer_singing() {
     assert_ne!(header.signature2(), [0; 64]);
 
     // The binary representation is correct.
-    assert_eq!(buf.len(), Header::SIZE + firmware.len());
+    assert_eq!(buf.len(), HEADER_SIZE + firmware.len());
     // Magic number.
     assert_eq!(buf[..4], [0x50, 0x52, 0x4D, 0x31]);
     // Timestamp.
@@ -108,12 +108,13 @@ fn developer_singing() {
     // Signature 2.
     assert_ne!(buf[176..240], [0; 64]);
     // Reserved.
-    assert!(&buf[240..Header::SIZE].iter().all(|&b| b == 0));
+    assert!(&buf[240..HEADER_SIZE].iter().all(|&b| b == 0));
 }
 
 #[test]
 fn trusted_singing() {
     let firmware = [0x01, 0x02, 0x03, 0x04];
+    const HEADER_SIZE: usize = 1024;
     let mut header = Header::sign_new(
         Magic::Atsama5d27KeyOs,
         "1.2.3-alpha1",
@@ -122,14 +123,13 @@ fn trusted_singing() {
         &firmware[..],
         &Sha256,
         &Secp256k1Sign(PUBKEY1),
+        HEADER_SIZE,
     )
     .unwrap();
-    let mut buf = [0u8; Header::SIZE + 4];
+    let mut buf = [0u8; HEADER_SIZE + 4];
     header.serialize(&mut buf).unwrap();
-    buf[Header::SIZE..].copy_from_slice(&firmware);
-    let parsed = Header::parse(&buf[..], &[PUBKEY1], &Sha256, &Secp256k1Verify)
-        .unwrap()
-        .unwrap();
+    buf[HEADER_SIZE..].copy_from_slice(&firmware);
+    let parsed = Header::parse(&buf[..], &[PUBKEY1], &Sha256, &Secp256k1Verify, HEADER_SIZE).unwrap().unwrap();
 
     // The parsed header is the same as the serialized header.
     assert_eq!(header.magic(), parsed.magic());
@@ -149,7 +149,7 @@ fn trusted_singing() {
     assert_eq!(header.signature2(), [0; 64]);
 
     // The binary representation is correct.
-    assert_eq!(buf.len(), Header::SIZE + firmware.len());
+    assert_eq!(buf.len(), HEADER_SIZE + firmware.len());
     // Magic number.
     assert_eq!(buf[..4], [0x50, 0x52, 0x4D, 0x31]);
     // Timestamp.
@@ -178,17 +178,17 @@ fn trusted_singing() {
     // Signature 2.
     assert_eq!(buf[176..240], [0; 64]);
     // Reserved.
-    assert!(&buf[240..Header::SIZE].iter().all(|&b| b == 0));
+    assert!(&buf[240..HEADER_SIZE].iter().all(|&b| b == 0));
 
     // Add second signature.
     header
         .add_second_signature(&Secp256k1Sign(PUBKEY2))
         .unwrap();
 
-    let mut buf = [0u8; Header::SIZE + 4];
+    let mut buf = [0u8; HEADER_SIZE + 4];
     header.serialize(&mut buf).unwrap();
-    buf[Header::SIZE..].copy_from_slice(&firmware);
-    let parsed = Header::parse(&buf[..], &[PUBKEY1, PUBKEY2], &Sha256, &Secp256k1Verify)
+    buf[HEADER_SIZE..].copy_from_slice(&firmware);
+    let parsed = Header::parse(&buf[..], &[PUBKEY1, PUBKEY2], &Sha256, &Secp256k1Verify, HEADER_SIZE)
         .unwrap()
         .unwrap();
 
@@ -210,7 +210,7 @@ fn trusted_singing() {
     assert_ne!(header.signature2(), [0; 64]);
 
     // The binary representation is correct.
-    assert_eq!(buf.len(), Header::SIZE + firmware.len());
+    assert_eq!(buf.len(), HEADER_SIZE + firmware.len());
     // Magic number.
     assert_eq!(buf[..4], [0x50, 0x52, 0x4D, 0x31]);
     // Timestamp.
@@ -239,5 +239,5 @@ fn trusted_singing() {
     // Signature 2.
     assert_ne!(buf[176..240], [0; 64]);
     // Reserved.
-    assert!(&buf[240..Header::SIZE].iter().all(|&b| b == 0));
+    assert!(&buf[240..HEADER_SIZE].iter().all(|&b| b == 0));
 }

@@ -48,13 +48,13 @@ where
     T: Into<OsString> + Clone,
 {
     match args::args(args)? {
-        args::Args::Dump { input } => {
+        args::Args::Dump { input, header_size } => {
             let mut input_buf = Vec::new();
             std::fs::File::open(input)
                 .map_err(Error::OpenInputFile)?
                 .read_to_end(&mut input_buf)
                 .map_err(Error::ReadInputFile)?;
-            match cosign2::Header::parse(&input_buf, &[], &Sha256, &Secp256k1Verify::default())? {
+            match cosign2::Header::parse(&input_buf, &[], &Sha256, &Secp256k1Verify::default(), header_size)? {
                 Some(header) => {
                     let magic = match header.magic() {
                         cosign2::Magic::Atsama5d27KeyOs => "atsama5d27-keyos",
@@ -143,6 +143,7 @@ where
             target,
             known_pubkeys,
             developer,
+            header_size,
         } => {
             // Check that user is not accidentally signing with the wrong key.
             let pubkey = secret.public_key(&secp256k1::Secp256k1::new());
@@ -200,6 +201,7 @@ where
                 known_pubkeys.as_slice(),
                 &Sha256,
                 &Secp256k1Verify::default(),
+                header_size,
             )? {
                 // If a header is present, add a second signature.
                 Some(mut header) => {
@@ -222,7 +224,7 @@ where
                         _ => {}
                     }
                     header.add_second_signature(&Secp256k1Sign::new(secret))?;
-                    (header, &input_buf[cosign2::Header::SIZE..])
+                    (header, &input_buf[header_size..])
                 }
                 // If no header is present, create and sign a new header.
                 None => {
@@ -238,17 +240,18 @@ where
                         &input_buf,
                         &Sha256,
                         &Secp256k1Sign::new(secret),
+                        header_size,
                     )?;
                     (header, input_buf.as_slice())
                 }
             };
 
             // Write the signed header and firmware to output file.
-            let mut header_buf = [0u8; cosign2::Header::SIZE];
-            header.serialize(&mut header_buf)?;
+            let mut header_buf = [0u8; 2048];
+            header.serialize(&mut header_buf[..header_size])?;
             output
                 .file()
-                .write_all(&header_buf)
+                .write_all(&header_buf[..header_size])
                 .map_err(Error::WriteOutputFile)?;
             std::io::copy(&mut firmware, &mut output.file()).map_err(Error::WriteOutputFile)?;
 
@@ -276,6 +279,7 @@ where
                 &known_pubkeys,
                 &Sha256,
                 &Secp256k1Verify::default(),
+                header_size,
             )
             .map_err(Error::ParseOutputFile)?
             .ok_or(Error::ParseOutputFileNoHeader)?;

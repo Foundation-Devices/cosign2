@@ -9,7 +9,7 @@ pub use config::Error as ConfigError;
 #[derive(Debug, Clone)]
 pub enum Args {
     /// Dump the header contents to stdout.
-    Dump { input: PathBuf },
+    Dump { input: PathBuf, header_size: usize },
     /// Sign a firmware file.
     Sign {
         pubkey: Option<secp256k1::PublicKey>,
@@ -20,6 +20,7 @@ pub enum Args {
         target: Option<Target>,
         known_pubkeys: Vec<secp256k1::PublicKey>,
         developer: bool,
+        header_size: usize,
     },
 }
 
@@ -42,7 +43,7 @@ where
 {
     let cli = cli::Args::try_parse_from(args).map_err(Error::Cli)?;
     match cli.command {
-        cli::Command::Dump { input: file } => Ok(Args::Dump { input: file }),
+        cli::Command::Dump { input: file, header_size } => Ok(Args::Dump { input: file, header_size: header_size.into() }),
         cli::Command::Sign {
             pubkey,
             secret,
@@ -54,6 +55,7 @@ where
             developer,
             target,
             known_pubkey: known_pubkeys,
+            header_size,
         } => {
             // Load and validate the config.
             let config = config.map(|c| config::Config::load(&c)).transpose()?;
@@ -155,6 +157,7 @@ where
                 target,
                 developer,
                 known_pubkeys,
+                header_size: header_size.into(),
             })
         }
     }

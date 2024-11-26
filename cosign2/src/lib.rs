@@ -10,6 +10,8 @@ mod tests;
 
 #[derive(Debug, Clone)]
 pub struct Header {
+    /// Size of the header in bytes.
+    size: usize,
     magic: [u8; 4],
     timestamp: [u8; 4],
     date: [u8; 14],
@@ -57,11 +59,6 @@ pub enum VerificationResult {
 }
 
 impl Header {
-    /// Number of reserved bytes at the end of the header.
-    pub const RESERVED: usize = 1808;
-    /// Size of the header in bytes.
-    pub const SIZE: usize = 2048;
-
     /// Magic number.
     pub fn magic(&self) -> Magic { Magic::from_bytes(self.magic).expect("validated") }
 
@@ -113,12 +110,14 @@ impl Header {
         firmware: &[u8],
         sha: &impl Sha256,
         secp: &impl Secp256k1Sign,
+        header_size: usize,
     ) -> Result<Self, Error> {
         // Validate the version string.
         #[cfg(feature = "semver")]
         semver::Version::from_str(version).map_err(|_| Error::InvalidVersionSemver)?;
 
         let mut header = Self {
+            size: header_size,
             magic: magic.to_bytes(),
             timestamp: timestamp.to_le_bytes(),
             date: [0; 14],
@@ -133,7 +132,8 @@ impl Header {
         };
         header.set_date(timestamp);
         header.set_version(version)?;
-        header.hash(&[0; Self::RESERVED], firmware, sha);
+        let reserved = [0; 1808];
+        header.hash(&reserved[..header_size - 240], firmware, sha);
         header.validate_fields(firmware, true)?;
 
         // Sign the header.
@@ -167,8 +167,9 @@ impl Header {
         known_signers: &[[u8; 33]],
         sha: &impl Sha256,
         secp: &impl Secp256k1Verify,
+        header_size: usize,
     ) -> Result<Option<Self>, Error> {
-        let Some(mut header) = Header::deserialize(data)? else {
+        let Some(mut header) = Header::deserialize(data, header_size)? else {
             return Ok(None);
         };
 
@@ -178,8 +179,8 @@ impl Header {
             return Err(Error::HeaderWithNoSignature);
         }
 
-        let reserved = &data[240..Self::SIZE];
-        let firmware = &data[Self::SIZE..];
+        let reserved = &data[240..header_size];
+        let firmware = &data[header_size..];
         header.hash(reserved, firmware, sha);
         header.verify_signatures(known_signers, secp)?;
         header.validate_fields(firmware, true)?;
@@ -197,20 +198,24 @@ impl Header {
     ///
     /// Use the [`parse`](Header::parse) method to read and verify the header
     /// signatures.
-    pub fn parse_unverified(data: &[u8], check_size: bool) -> Result<Option<Self>, Error> {
-        let Some(header) = Self::deserialize(data)? else {
+    pub fn parse_unverified(
+        data: &[u8],
+        header_size: usize,
+        check_size: bool,
+    ) -> Result<Option<Self>, Error> {
+        let Some(header) = Self::deserialize(data, header_size)? else {
             return Ok(None);
         };
-        match header.validate_fields(&data[Self::SIZE..], check_size) {
+        match header.validate_fields(&data[header.size..], check_size) {
             Ok(()) => Ok(Some(header)),
             Err(e) => Err(e),
         }
     }
 
-    /// Serialize the header to a buffer. Exactly [`Self::SIZE`] bytes will be
+    /// Serialize the header to a buffer. Exactly [`self.size`] bytes will be
     /// written.
     pub fn serialize(&self, buf: &mut [u8]) -> Result<(), Error> {
-        if buf.len() < Self::SIZE {
+        if buf.len() < self.size {
             return Err(Error::SerializeBufferTooSmall);
         }
 
@@ -223,7 +228,7 @@ impl Header {
         buf[79..143].copy_from_slice(&self.signature1);
         buf[143..176].copy_from_slice(&self.pubkey2);
         buf[176..240].copy_from_slice(&self.signature2);
-        buf[240..Self::SIZE].copy_from_slice(&[0u8; Self::RESERVED]);
+        buf[240..self.size].fill(0);
 
         Ok(())
     }
@@ -251,7 +256,7 @@ impl Header {
     /// Deserialize the header fields from a buffer.
     ///
     /// Returns `None` if the buffer does not contain a header.
-    fn deserialize(data: &[u8]) -> Result<Option<Self>, Error> {
+    fn deserialize(data: &[u8], header_size: usize) -> Result<Option<Self>, Error> {
         if data.len() < 4 {
             return Ok(None);
         }
@@ -263,7 +268,7 @@ impl Header {
         }
 
         // The data contains a header, so make sure it's of appropriate length.
-        if data.len() < Self::SIZE {
+        if data.len() < header_size {
             return Err(Error::HeaderTooShort);
         }
 
@@ -277,6 +282,7 @@ impl Header {
         let signature2 = data[176..240].try_into().unwrap();
 
         Ok(Some(Self {
+            size: header_size,
             magic,
             timestamp,
             date,

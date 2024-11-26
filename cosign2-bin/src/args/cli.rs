@@ -15,6 +15,9 @@ pub enum Command {
         /// The firmware file.
         #[clap(short, long)]
         input: PathBuf,
+        /// Size of the header in bytes.
+        #[clap(long, default_value_t = 2048, value_parser = clap::value_parser!(u16).range(256..=2048))]
+        header_size: u16,
     },
     /// Sign a firmware file.
     Sign {
@@ -49,5 +52,8 @@ pub enum Command {
         /// Known public keys to accept signatures from, separated by commas.
         #[clap(long)]
         known_pubkey: Option<Vec<String>>,
+        /// Size of the header in bytes.
+        #[clap(long, default_value_t = 2048, value_parser = clap::value_parser!(u16).range(256..=2048))]
+        header_size: u16,
     },
 }
