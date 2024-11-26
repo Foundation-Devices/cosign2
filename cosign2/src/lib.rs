@@ -59,6 +59,9 @@ pub enum VerificationResult {
 }
 
 impl Header {
+    /// Default size of the header in bytes.
+    pub const DEFAULT_SIZE: usize = 2048;
+
     /// Magic number.
     pub fn magic(&self) -> Magic { Magic::from_bytes(self.magic).expect("validated") }
 
