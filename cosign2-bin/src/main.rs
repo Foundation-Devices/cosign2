@@ -185,6 +185,7 @@ where
                         .read(true)
                         .write(true)
                         .create(true)
+                        .truncate(true)
                         .open(&path)
                         .map_err(Error::OpenOutputFile)?;
                     OutputFile::File(file, path.to_owned())
@@ -196,7 +197,7 @@ where
                 .read_to_end(&mut input_buf)
                 .map_err(Error::ReadInputFile)?;
 
-            let (header, mut firmware) = match cosign2::Header::parse(
+            let (header, firmware) = match cosign2::Header::parse(
                 &input_buf,
                 known_pubkeys.as_slice(),
                 &Sha256,
@@ -247,13 +248,17 @@ where
             };
 
             // Write the signed header and firmware to output file.
-            let mut header_buf = [0u8; 2048];
-            header.serialize(&mut header_buf[..header_size])?;
+            let mut header_buf = Vec::new();
+            header_buf.resize(header_size, 0);
+            header.serialize(&mut header_buf)?;
             output
                 .file()
-                .write_all(&header_buf[..header_size])
+                .write_all(&header_buf)
                 .map_err(Error::WriteOutputFile)?;
-            std::io::copy(&mut firmware, &mut output.file()).map_err(Error::WriteOutputFile)?;
+            output
+                .file()
+                .write_all(&firmware)
+                .map_err(Error::WriteOutputFile)?;
 
             // When working in-place, the output is actually first written to a temporary
             // file. To achieve the effect of in-place editing, the temporary
