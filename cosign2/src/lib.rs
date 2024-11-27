@@ -188,11 +188,6 @@ impl Header {
         header.verify_signatures(known_signers, secp)?;
         header.validate_fields(firmware, true)?;
 
-        // Check that the reserved bytes are all zero.
-        if reserved.iter().any(|&b| b != 0) {
-            return Err(Error::InvalidReservedBytes);
-        }
-
         Ok(Some(header))
     }
 
