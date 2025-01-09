@@ -5,8 +5,11 @@ const MONTHS: [&[u8]; 12] = [
 ];
 const DIGITS: [u8; 10] = [b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9'];
 
-const PUBKEY1: [u8; 33] = [0xCD; 33];
-const PUBKEY2: [u8; 33] = [0xEF; 33];
+const DEV_PUBKEY1: [u8; 33] = [0x12; 33];
+
+const KNOWN_PUBKEY1: [u8; 33] = [0xAB; 33];
+const KNOWN_PUBKEY2: [u8; 33] = [0xCD; 33];
+const KNOWN_PUBKEY3: [u8; 33] = [0xEF; 33];
 
 struct Secp256k1Sign([u8; 33]);
 
@@ -52,14 +55,14 @@ fn developer_singing() {
         Signer::Developer,
         &firmware[..],
         &Sha256,
-        &Secp256k1Sign(PUBKEY2),
+        &Secp256k1Sign(DEV_PUBKEY1),
         HEADER_SIZE,
     )
     .unwrap();
     let mut buf = [0u8; HEADER_SIZE + 4];
     header.serialize(&mut buf).unwrap();
     buf[HEADER_SIZE..].copy_from_slice(&firmware);
-    let parsed = Header::parse(&buf[..], &[PUBKEY2], &Sha256, &Secp256k1Verify, HEADER_SIZE).unwrap().unwrap();
+    let parsed = Header::parse(&buf[..], &[KNOWN_PUBKEY1, KNOWN_PUBKEY2, KNOWN_PUBKEY3], &Sha256, &Secp256k1Verify, HEADER_SIZE).unwrap().unwrap();
 
     // The parsed header is the same as the serialized header.
     assert_eq!(header.magic(), parsed.magic());
@@ -104,7 +107,7 @@ fn developer_singing() {
     // Signature 1.
     assert_eq!(&buf[79..143], [0; 64]);
     // Public key 2.
-    assert_eq!(&buf[143..176], PUBKEY2);
+    assert_eq!(&buf[143..176], DEV_PUBKEY1);
     // Signature 2.
     assert_ne!(buf[176..240], [0; 64]);
     // Reserved.
@@ -122,14 +125,16 @@ fn trusted_singing() {
         Signer::Trusted,
         &firmware[..],
         &Sha256,
-        &Secp256k1Sign(PUBKEY1),
+        &Secp256k1Sign(KNOWN_PUBKEY1),
         HEADER_SIZE,
     )
     .unwrap();
     let mut buf = [0u8; HEADER_SIZE + 4];
     header.serialize(&mut buf).unwrap();
     buf[HEADER_SIZE..].copy_from_slice(&firmware);
-    let parsed = Header::parse(&buf[..], &[PUBKEY1], &Sha256, &Secp256k1Verify, HEADER_SIZE).unwrap().unwrap();
+    let parsed = Header::parse(&buf[..], &[KNOWN_PUBKEY1, KNOWN_PUBKEY2, KNOWN_PUBKEY3], &Sha256, &Secp256k1Verify, HEADER_SIZE)
+        .unwrap()
+        .unwrap();
 
     // The parsed header is the same as the serialized header.
     assert_eq!(header.magic(), parsed.magic());
@@ -170,7 +175,7 @@ fn trusted_singing() {
     // Firmware size.
     assert_eq!(buf[42..46], [4, 0, 0, 0]);
     // Public key 1.
-    assert_eq!(&buf[46..79], PUBKEY1);
+    assert_eq!(&buf[46..79], KNOWN_PUBKEY1);
     // Signature 1.
     assert_ne!(&buf[79..143], [0; 64]);
     // Public key 2.
@@ -182,13 +187,13 @@ fn trusted_singing() {
 
     // Add second signature.
     header
-        .add_second_signature(&Secp256k1Sign(PUBKEY2))
+        .add_second_signature(&Secp256k1Sign(KNOWN_PUBKEY3))
         .unwrap();
 
     let mut buf = [0u8; HEADER_SIZE + 4];
     header.serialize(&mut buf).unwrap();
     buf[HEADER_SIZE..].copy_from_slice(&firmware);
-    let parsed = Header::parse(&buf[..], &[PUBKEY1, PUBKEY2], &Sha256, &Secp256k1Verify, HEADER_SIZE)
+    let parsed = Header::parse(&buf[..], &[KNOWN_PUBKEY1, KNOWN_PUBKEY2, KNOWN_PUBKEY3], &Sha256, &Secp256k1Verify, HEADER_SIZE)
         .unwrap()
         .unwrap();
 
@@ -231,11 +236,11 @@ fn trusted_singing() {
     // Firmware size.
     assert_eq!(buf[42..46], [4, 0, 0, 0]);
     // Public key 1.
-    assert_eq!(&buf[46..79], PUBKEY1);
+    assert_eq!(&buf[46..79], KNOWN_PUBKEY1);
     // Signature 1.
     assert_ne!(&buf[79..143], [0; 64]);
     // Public key 2.
-    assert_eq!(&buf[143..176], PUBKEY2);
+    assert_eq!(&buf[143..176], KNOWN_PUBKEY3);
     // Signature 2.
     assert_ne!(buf[176..240], [0; 64]);
     // Reserved.
