@@ -8,6 +8,20 @@ use chrono::Datelike;
 #[cfg(test)]
 mod tests;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Trust {
+    /// only signed by a developper key
+    ThirdParty,
+    /// trust is disabled by the verifyier
+    Disabled,
+    /// only signed by a key declared as trusted, but unverified yet
+    Unverified,
+    /// only signed by a verified trusted key
+    PartiallyTrusted,
+    /// fully signed by two differents verified trusted keys
+    FullyTrusted,
+}
+
 #[derive(Debug, Clone)]
 pub struct Header {
     /// Size of the header in bytes.
@@ -26,6 +40,8 @@ pub struct Header {
     hash: [u8; 32],
     /// Hash of the firmware only (not present in the header).
     firmware_hash: [u8; 32],
+    /// State of trust according to included signatures
+    trust: Trust,
 }
 
 /// SHA-256 hash function.
@@ -104,6 +120,9 @@ impl Header {
     /// [`parse_unverified`](Header::parse_unverified).
     pub fn firmware_hash(&self) -> &[u8; 32] { &self.firmware_hash }
 
+    /// State of trust according to included signatures.
+    pub fn trust(&self) -> Trust { self.trust }
+
     /// Create a new header and sign it.
     pub fn sign_new(
         magic: Magic,
@@ -132,6 +151,7 @@ impl Header {
             signature2: [0; 64],
             hash: [0; 32],
             firmware_hash: [0; 32],
+            trust: Trust::Unverified,
         };
         header.set_date(timestamp);
         header.set_version(version)?;
@@ -152,6 +172,7 @@ impl Header {
                 // The first signature is left empty (zeroed out).
                 header.pubkey2 = secp.pubkey();
                 header.signature2 = secp.sign_ecdsa(header.hash);
+                header.trust = Trust::ThirdParty;
             }
         }
 
@@ -186,6 +207,7 @@ impl Header {
         let firmware = &data[header_size..];
         header.hash(reserved, firmware, sha);
         header.verify_signatures(known_signers, secp)?;
+        header.update_trust(known_signers)?;
         header.validate_fields(firmware, true)?;
 
         Ok(Some(header))
@@ -251,6 +273,34 @@ impl Header {
         Ok(())
     }
 
+    /// Update the trust status according to a list of known trusted signers.
+    ///
+    /// No assumption is done during this check because the header could have been maliciously manually
+    /// modified.
+    fn update_trust(&mut self, known_signers: &[[u8; 33]]) -> Result<(), Error> {
+        self.trust = if known_signers.len() == 0 {
+            Trust::Disabled
+        } else {
+            match (self.pubkey1, self.pubkey2) {
+                (pubkey1, pubkey2)
+                    if known_signers.contains(&pubkey1)
+                        && known_signers.contains(&pubkey2)
+                        && pubkey1 != pubkey2 =>
+                {
+                    Trust::FullyTrusted
+                }
+                (pubkey1, pubkey2) if known_signers.contains(&pubkey1) && pubkey2 == [0; 33] => {
+                    Trust::PartiallyTrusted
+                }
+                (pubkey1, pubkey2) if pubkey1 == [0; 33] && !known_signers.contains(&pubkey2) => {
+                    Trust::ThirdParty
+                }
+                _ => return Err(Error::BrokenSignatures),
+            }
+        };
+        Ok(())
+    }
+
     /// Deserialize the header fields from a buffer.
     ///
     /// Returns `None` if the buffer does not contain a header.
@@ -292,6 +342,7 @@ impl Header {
             signature2,
             hash: [0; 32],
             firmware_hash: [0; 32],
+            trust: Trust::Unverified,
         }))
     }
 
@@ -341,7 +392,10 @@ impl Header {
             }
         }
         if self.signature2 != [0; 64] {
-            if !known_signers.is_empty() && !known_signers.contains(&self.pubkey2) && self.signature1 != [0; 64] {
+            if !known_signers.is_empty()
+                && !known_signers.contains(&self.pubkey2)
+                && self.signature1 != [0; 64]
+            {
                 // Trusted sheme only
                 return Err(Error::UnknownPubkey2);
             }
@@ -517,6 +571,7 @@ pub enum Error {
     UnknownPubkey1,
     UnknownPubkey2,
     VersionTooLong,
+    BrokenSignatures,
 }
 
 impl core::fmt::Display for Error {
@@ -550,6 +605,7 @@ impl core::fmt::Display for Error {
             Self::UnknownPubkey1 => write!(f, "unknown pubkey1 in header"),
             Self::UnknownPubkey2 => write!(f, "unknown pubkey2 in header"),
             Self::VersionTooLong => write!(f, "version too long to write in header"),
+            Self::BrokenSignatures => write!(f, "broken signatures sheme in header"),
         }
     }
 }

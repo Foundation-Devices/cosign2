@@ -59,6 +59,9 @@ fn developer_singing() {
         HEADER_SIZE,
     )
     .unwrap();
+
+    assert_eq!(Trust::ThirdParty, header.trust());
+
     let mut buf = [0u8; HEADER_SIZE + 4];
     header.serialize(&mut buf).unwrap();
     buf[HEADER_SIZE..].copy_from_slice(&firmware);
@@ -74,6 +77,7 @@ fn developer_singing() {
     assert_eq!(header.signature1(), parsed.signature1());
     assert_eq!(header.pubkey2(), parsed.pubkey2());
     assert_eq!(header.signature2(), parsed.signature2());
+    assert_eq!(Trust::ThirdParty, parsed.trust());
 
     // The signing procedure filled in the correct field.
     assert_eq!(header.pubkey1(), [0; 33]);
@@ -129,6 +133,9 @@ fn trusted_singing() {
         HEADER_SIZE,
     )
     .unwrap();
+
+    assert_eq!(Trust::Unverified, header.trust());
+
     let mut buf = [0u8; HEADER_SIZE + 4];
     header.serialize(&mut buf).unwrap();
     buf[HEADER_SIZE..].copy_from_slice(&firmware);
@@ -146,6 +153,7 @@ fn trusted_singing() {
     assert_eq!(header.signature1(), parsed.signature1());
     assert_eq!(header.pubkey2(), parsed.pubkey2());
     assert_eq!(header.signature2(), parsed.signature2());
+    assert_eq!(Trust::PartiallyTrusted, parsed.trust());
 
     // The signing procedure filled in the correct field.
     assert_ne!(header.pubkey1(), [0; 33]);
@@ -207,6 +215,7 @@ fn trusted_singing() {
     assert_eq!(header.signature1(), parsed.signature1());
     assert_eq!(header.pubkey2(), parsed.pubkey2());
     assert_eq!(header.signature2(), parsed.signature2());
+    assert_eq!(Trust::FullyTrusted, parsed.trust());
 
     // The signing procedure filled in the correct fields.
     assert_ne!(header.pubkey1(), [0; 33]);
