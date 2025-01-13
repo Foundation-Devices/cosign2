@@ -24,8 +24,6 @@ pub enum Trust {
 
 #[derive(Debug, Clone)]
 pub struct Header {
-    /// Size of the header in bytes.
-    size: usize,
     magic: [u8; 4],
     timestamp: [u8; 4],
     date: [u8; 14],
@@ -36,11 +34,13 @@ pub struct Header {
     pubkey2: [u8; 33],
     signature2: [u8; 64],
 
+    /// Size of the header in bytes (not present in the header).
+    size: usize,
     /// Hash of the header and firmware code (not present in the header).
     hash: [u8; 32],
     /// Hash of the firmware only (not present in the header).
     firmware_hash: [u8; 32],
-    /// State of trust according to included signatures
+    /// State of trust according to included signatures (not present in the header).
     trust: Trust,
 }
 
@@ -81,7 +81,6 @@ impl Header {
     pub const MAX_SIZE: usize = 4096;
     /// Minimum size of the header in bytes.
     pub const MIN_SIZE: usize = 256;
-
 
     /// Magic number.
     pub fn magic(&self) -> Magic { Magic::from_bytes(self.magic).expect("validated") }
