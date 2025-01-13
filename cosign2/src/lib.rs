@@ -12,13 +12,13 @@ mod tests;
 pub enum Trust {
     /// only signed by a developper key
     ThirdParty,
-    /// trust is disabled by the verifyier
+    /// trust is disabled by the verifier
     Disabled,
     /// only signed by a key declared as trusted, but unverified yet
     Unverified,
-    /// only signed by a verified trusted key
+    /// only signed by a single verified trusted key
     PartiallyTrusted,
-    /// fully signed by two differents verified trusted keys
+    /// fully signed by two different verified trusted keys
     FullyTrusted,
 }
 
