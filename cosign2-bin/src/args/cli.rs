@@ -2,6 +2,8 @@
 
 use std::path::PathBuf;
 
+use cosign2::Header;
+
 #[derive(clap::Parser)]
 pub struct Args {
     #[command(subcommand)]
@@ -16,7 +18,7 @@ pub enum Command {
         #[clap(short, long)]
         input: PathBuf,
         /// Size of the header in bytes.
-        #[clap(long, default_value_t = 2048, value_parser = clap::value_parser!(u16).range(256..=2048))]
+        #[clap(long, default_value_t = 2048, value_parser = clap::value_parser!(u16).range(Header::MIN_SIZE as i64..=Header::MAX_SIZE as i64))]
         header_size: u16,
     },
     /// Sign a firmware file.
@@ -53,7 +55,7 @@ pub enum Command {
         #[clap(long)]
         known_pubkey: Option<Vec<String>>,
         /// Size of the header in bytes.
-        #[clap(long, default_value_t = 2048, value_parser = clap::value_parser!(u16).range(256..=2048))]
+        #[clap(long, default_value_t = 2048, value_parser = clap::value_parser!(u16).range(Header::MIN_SIZE as i64..=Header::MAX_SIZE as i64))]
         header_size: u16,
     },
 }

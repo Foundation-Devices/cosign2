@@ -77,6 +77,11 @@ pub enum VerificationResult {
 impl Header {
     /// Default size of the header in bytes.
     pub const DEFAULT_SIZE: usize = 2048;
+    /// Maximum size of the header in bytes.
+    pub const MAX_SIZE: usize = 4096;
+    /// Minimum size of the header in bytes.
+    pub const MIN_SIZE: usize = 256;
+
 
     /// Magic number.
     pub fn magic(&self) -> Magic { Magic::from_bytes(self.magic).expect("validated") }
@@ -138,6 +143,10 @@ impl Header {
         #[cfg(feature = "semver")]
         semver::Version::from_str(version).map_err(|_| Error::InvalidVersionSemver)?;
 
+        if header_size > Self::MAX_SIZE {
+            return Err(Error::HeaderTooLong);
+        }
+
         let mut header = Self {
             size: header_size,
             magic: magic.to_bytes(),
@@ -193,6 +202,10 @@ impl Header {
         secp: &impl Secp256k1Verify,
         header_size: usize,
     ) -> Result<Option<Self>, Error> {
+        if header_size > Self::MAX_SIZE {
+            return Err(Error::HeaderTooLong);
+        }
+
         let Some(mut header) = Header::deserialize(data, header_size)? else {
             return Ok(None);
         };
@@ -223,6 +236,10 @@ impl Header {
         header_size: usize,
         check_size: bool,
     ) -> Result<Option<Self>, Error> {
+        if header_size > Self::MAX_SIZE {
+            return Err(Error::HeaderTooLong);
+        }
+
         let Some(header) = Self::deserialize(data, header_size)? else {
             return Ok(None);
         };
@@ -551,6 +568,7 @@ fn ascii_digit(b: u32) -> u8 {
 pub enum Error {
     FirmwareTooLong,
     HeaderTooShort,
+    HeaderTooLong,
     HeaderWithNoSignature,
     InvalidDateTrailingBytes,
     InvalidDateUtf8,
@@ -579,6 +597,7 @@ impl core::fmt::Display for Error {
         match self {
             Self::FirmwareTooLong => write!(f, "firmware too long"),
             Self::HeaderTooShort => write!(f, "header too short"),
+            Self::HeaderTooLong => write!(f, "header too long"),
             Self::HeaderWithNoSignature => write!(f, "header with no signature"),
             Self::InvalidDateTrailingBytes => write!(f, "invalid date trailing bytes in header"),
             Self::InvalidDateUtf8 => write!(f, "invalid date UTF-8 in header"),
