@@ -147,7 +147,6 @@ impl Header {
         }
 
         let mut header = Self {
-            size: header_size,
             magic: magic.to_bytes(),
             timestamp: timestamp.to_le_bytes(),
             date: [0; 14],
@@ -157,6 +156,7 @@ impl Header {
             signature1: [0; 64],
             pubkey2: [0; 33],
             signature2: [0; 64],
+            size: header_size,
             hash: [0; 32],
             firmware_hash: [0; 32],
             trust: Trust::Unverified,
