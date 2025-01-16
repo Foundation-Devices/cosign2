@@ -76,7 +76,7 @@ pub enum VerificationResult {
 
 impl Header {
     /// Default size of the header in bytes.
-    pub const DEFAULT_SIZE: usize = 2048;
+    pub const DEFAULT_SIZE: usize = Self::MAX_SIZE;
     /// Maximum size of the header in bytes.
     pub const MAX_SIZE: usize = 4096;
     /// Minimum size of the header in bytes.
@@ -163,7 +163,7 @@ impl Header {
         };
         header.set_date(timestamp);
         header.set_version(version)?;
-        let reserved = [0; 1808];
+        let reserved = [0; Self::MAX_SIZE - 240];
         header.hash(&reserved[..header_size - 240], firmware, sha);
         header.validate_fields(firmware, true)?;
 
