@@ -163,8 +163,8 @@ impl Header {
         };
         header.set_date(timestamp);
         header.set_version(version)?;
-        let reserved = [0; Self::MAX_SIZE - 240];
-        header.hash(&reserved[..header_size - 240], firmware, sha);
+        let reserved = [0; Self::MAX_SIZE];
+        header.hash(&reserved[..header_size - header.payload_size()], firmware, sha);
         header.validate_fields(firmware, true)?;
 
         // Sign the header.
@@ -215,7 +215,7 @@ impl Header {
             return Err(Error::HeaderWithNoSignature);
         }
 
-        let reserved = &data[240..header_size];
+        let reserved = &data[header.payload_size()..header_size];
         let firmware = &data[header_size..];
         header.hash(reserved, firmware, sha);
         header.verify_signatures(known_signers, secp)?;
@@ -287,6 +287,20 @@ impl Header {
         self.pubkey2 = pubkey;
         self.signature2 = secp.sign_ecdsa(self.hash);
         Ok(())
+    }
+
+    /// Returns the size of the actual header data in bytes (excuding the reserved padding).
+    #[inline]
+    const fn payload_size(&self) -> usize {
+        self.magic.len()
+            + self.timestamp.len()
+            + self.date.len()
+            + self.version.len()
+            + self.firmware_size.len()
+            + self.pubkey1.len()
+            + self.signature1.len()
+            + self.pubkey2.len()
+            + self.signature2.len()
     }
 
     /// Update the trust status according to a list of known trusted signers.
