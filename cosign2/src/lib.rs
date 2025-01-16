@@ -76,7 +76,7 @@ pub enum VerificationResult {
 
 impl Header {
     /// Default size of the header in bytes.
-    pub const DEFAULT_SIZE: usize = Self::MAX_SIZE;
+    pub const DEFAULT_SIZE: usize = 2048;
     /// Maximum size of the header in bytes.
     pub const MAX_SIZE: usize = 4096;
     /// Minimum size of the header in bytes.
