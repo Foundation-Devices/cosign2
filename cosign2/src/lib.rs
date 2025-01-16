@@ -623,7 +623,7 @@ impl core::fmt::Display for Error {
             Self::UnknownPubkey1 => write!(f, "unknown pubkey1 in header"),
             Self::UnknownPubkey2 => write!(f, "unknown pubkey2 in header"),
             Self::VersionTooLong => write!(f, "version too long to write in header"),
-            Self::BrokenSignatures => write!(f, "broken signatures sheme in header"),
+            Self::BrokenSignatures => write!(f, "broken signatures scheme in header"),
         }
     }
 }
