@@ -413,7 +413,7 @@ impl Header {
         secp: &impl Secp256k1Verify,
     ) -> Result<(), Error> {
         if self.signature1 != [0; 64] {
-            // Trusted sheme only
+            // Trusted scheme only
             if !known_signers.is_empty() && !known_signers.contains(&self.pubkey1) {
                 return Err(Error::UnknownPubkey1);
             }
@@ -426,7 +426,7 @@ impl Header {
                 && !known_signers.contains(&self.pubkey2)
                 && self.signature1 != [0; 64]
             {
-                // Trusted sheme only
+                // Trusted scheme only
                 return Err(Error::UnknownPubkey2);
             }
             if secp.verify_ecdsa(self.hash, self.signature2, self.pubkey2) != VerificationResult::Valid {
