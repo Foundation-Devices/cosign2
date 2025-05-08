@@ -10,7 +10,7 @@ pub use config::Error as ConfigError;
 pub enum Args {
     /// Dump the header contents to stdout.
     Dump { input: PathBuf, header_size: usize },
-    /// Sign a firmware file.
+    /// Sign a binary file.
     Sign {
         pubkey: Option<secp256k1::PublicKey>,
         secret: secp256k1::SecretKey,
@@ -43,7 +43,9 @@ where
 {
     let cli = cli::Args::try_parse_from(args).map_err(Error::Cli)?;
     match cli.command {
-        cli::Command::Dump { input: file, header_size } => Ok(Args::Dump { input: file, header_size: header_size.into() }),
+        cli::Command::Dump { input: file, header_size } => {
+            Ok(Args::Dump { input: file, header_size: header_size.into() })
+        }
         cli::Command::Sign {
             pubkey,
             secret,
@@ -51,7 +53,7 @@ where
             input,
             in_place,
             output,
-            firmware_version,
+            binary_version,
             developer,
             target,
             known_pubkey: known_pubkeys,
@@ -71,9 +73,7 @@ where
                     })
                 })
                 .transpose()?;
-            let config_known_pubkeys = config
-                .as_ref()
-                .and_then(|config| config.known_pubkeys.clone());
+            let config_known_pubkeys = config.as_ref().and_then(|config| config.known_pubkeys.clone());
             let config_target = config.as_ref().and_then(|config| config.target.clone());
 
             // Reconcile the CLI and config arguments. Error if anything is specified both
@@ -106,10 +106,8 @@ where
             // Parse the arguments.
             let pubkey = pubkey
                 .map(|p| {
-                    secp256k1::PublicKey::from_slice(
-                        &hex::decode(p).map_err(|_| Error::InvalidPubkeyHex)?,
-                    )
-                    .map_err(Error::InvalidPubkey)
+                    secp256k1::PublicKey::from_slice(&hex::decode(p).map_err(|_| Error::InvalidPubkeyHex)?)
+                        .map_err(Error::InvalidPubkey)
                 })
                 .transpose()?;
             let pem = std::fs::read(secret).map_err(Error::ReadPemFile)?;
@@ -117,19 +115,13 @@ where
             if key.tag() != "EC PRIVATE KEY" {
                 return Err(Error::InvalidPemTag(key.tag().to_string()));
             }
-            let secret = sec1::EcPrivateKey::from_der(key.contents())
-                .map_err(Error::ParseDerContent)?
-                .private_key;
             let secret =
-                secp256k1::SecretKey::from_slice(secret).map_err(Error::InvalidSecretKey)?;
+                sec1::EcPrivateKey::from_der(key.contents()).map_err(Error::ParseDerContent)?.private_key;
+            let secret = secp256k1::SecretKey::from_slice(secret).map_err(Error::InvalidSecretKey)?;
             if in_place && output.is_some() {
                 return Err(Error::InPlaceAndOutputSpecified);
             }
-            let output = if in_place {
-                Output::InPlace
-            } else {
-                Output::File(output.unwrap())
-            };
+            let output = if in_place { Output::InPlace } else { Output::File(output.unwrap()) };
             let target = target
                 .map(|t| match t.as_str() {
                     "atsama5d27-keyos" => Ok(Target::Atsama5d27KeyOs),
@@ -153,7 +145,7 @@ where
                 secret,
                 input,
                 output,
-                version: firmware_version,
+                version: binary_version,
                 target,
                 developer,
                 known_pubkeys,
@@ -187,15 +179,11 @@ pub enum Error {
 }
 
 impl From<pem::PemError> for Error {
-    fn from(e: pem::PemError) -> Self {
-        Error::ParsePemFile(e)
-    }
+    fn from(e: pem::PemError) -> Self { Error::ParsePemFile(e) }
 }
 
 impl From<ConfigError> for Error {
-    fn from(e: ConfigError) -> Self {
-        Error::Config(e)
-    }
+    fn from(e: ConfigError) -> Self { Error::Config(e) }
 }
 
 impl std::fmt::Display for Error {
@@ -210,11 +198,7 @@ impl std::fmt::Display for Error {
                 write!(f, r#"user specified invalid known public key: "{pubkey}""#)
             }
             Error::InvalidKnownPubkeyHex(pubkey) => {
-                write!(
-                    f,
-                    r#"user specified invalid known public key hex: "{}""#,
-                    pubkey
-                )
+                write!(f, r#"user specified invalid known public key hex: "{}""#, pubkey)
             }
             Error::InvalidPemTag(tag) => {
                 write!(f, r#"invalid PEM tag: "{tag}", expected "EC PRIVATE KEY""#)

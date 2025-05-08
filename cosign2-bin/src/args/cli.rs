@@ -14,14 +14,14 @@ pub struct Args {
 pub enum Command {
     /// Dump the header contents to stdout.
     Dump {
-        /// The firmware file.
+        /// The binary file.
         #[clap(short, long)]
         input: PathBuf,
         /// Size of the header in bytes.
         #[clap(long, default_value_t = Header::DEFAULT_SIZE as u16, value_parser = clap::value_parser!(u16).range(Header::MIN_SIZE as i64..=Header::MAX_SIZE as i64))]
         header_size: u16,
     },
-    /// Sign a firmware file.
+    /// Sign a binary file.
     Sign {
         /// The public key in hex, verified against the secret key to avoid
         /// accidental signing.
@@ -33,18 +33,18 @@ pub enum Command {
         /// Path to config file.
         #[clap(long, short)]
         config: Option<PathBuf>,
-        /// The firmware file.
+        /// The binary file.
         #[clap(short, long)]
         input: PathBuf,
-        /// Update the firmware file in place.
+        /// Update the binary file in place.
         #[clap(long)]
         in_place: bool,
-        /// Path to write the signed firmware file.
+        /// Path to write the signed binary file.
         #[clap(short, long)]
         output: Option<PathBuf>,
         /// Version to write in the header.
         #[clap(long)]
-        firmware_version: Option<semver::Version>,
+        binary_version: Option<semver::Version>,
         /// Developer mode, signs with a single key.
         #[clap(long)]
         developer: bool,

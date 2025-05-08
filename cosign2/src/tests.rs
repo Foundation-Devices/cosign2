@@ -1,8 +1,7 @@
 use super::*;
 
-const MONTHS: [&[u8]; 12] = [
-    b"Jan", b"Feb", b"Mar", b"Apr", b"May", b"Jun", b"Jul", b"Aug", b"Sep", b"Oct", b"Nov", b"Dec",
-];
+const MONTHS: [&[u8]; 12] =
+    [b"Jan", b"Feb", b"Mar", b"Apr", b"May", b"Jun", b"Jul", b"Aug", b"Sep", b"Oct", b"Nov", b"Dec"];
 const DIGITS: [u8; 10] = [b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9'];
 
 const DEV_PUBKEY1: [u8; 33] = [0x12; 33];
@@ -14,24 +13,15 @@ const KNOWN_PUBKEY3: [u8; 33] = [0xEF; 33];
 struct Secp256k1Sign([u8; 33]);
 
 impl crate::Secp256k1Sign for Secp256k1Sign {
-    fn sign_ecdsa(&self, _msg: [u8; 32]) -> [u8; 64] {
-        [0xAB; 64]
-    }
+    fn sign_ecdsa(&self, _msg: [u8; 32]) -> [u8; 64] { [0xAB; 64] }
 
-    fn pubkey(&self) -> [u8; 33] {
-        self.0
-    }
+    fn pubkey(&self) -> [u8; 33] { self.0 }
 }
 
 struct Secp256k1Verify;
 
 impl crate::Secp256k1Verify for Secp256k1Verify {
-    fn verify_ecdsa(
-        &self,
-        _msg: [u8; 32],
-        _sig: [u8; 64],
-        _pubkey: [u8; 33],
-    ) -> VerificationResult {
+    fn verify_ecdsa(&self, _msg: [u8; 32], _sig: [u8; 64], _pubkey: [u8; 33]) -> VerificationResult {
         VerificationResult::Valid
     }
 }
@@ -39,21 +29,19 @@ impl crate::Secp256k1Verify for Secp256k1Verify {
 struct Sha256;
 
 impl crate::Sha256 for Sha256 {
-    fn hash(&self, _data: &[u8]) -> [u8; 32] {
-        [1; 32]
-    }
+    fn hash(&self, _data: &[u8]) -> [u8; 32] { [1; 32] }
 }
 
 #[test]
 fn developer_singing() {
-    let firmware = [0x01, 0x02, 0x03, 0x04];
+    let binary = [0x01, 0x02, 0x03, 0x04];
     const HEADER_SIZE: usize = 1024;
     let header = Header::sign_new(
         Magic::Atsama5d27KeyOs,
         "1.2.3",
-        firmware.len().try_into().unwrap(),
+        binary.len().try_into().unwrap(),
         Signer::Developer,
-        &firmware[..],
+        &binary[..],
         &Sha256,
         &Secp256k1Sign(DEV_PUBKEY1),
         HEADER_SIZE,
@@ -64,15 +52,23 @@ fn developer_singing() {
 
     let mut buf = [0u8; HEADER_SIZE + 4];
     header.serialize(&mut buf).unwrap();
-    buf[HEADER_SIZE..].copy_from_slice(&firmware);
-    let parsed = Header::parse(&buf[..], &[KNOWN_PUBKEY1, KNOWN_PUBKEY2, KNOWN_PUBKEY3], &Sha256, &Secp256k1Verify, HEADER_SIZE).unwrap().unwrap();
+    buf[HEADER_SIZE..].copy_from_slice(&binary);
+    let parsed = Header::parse(
+        &buf[..],
+        &[KNOWN_PUBKEY1, KNOWN_PUBKEY2, KNOWN_PUBKEY3],
+        &Sha256,
+        &Secp256k1Verify,
+        HEADER_SIZE,
+    )
+    .unwrap()
+    .unwrap();
 
     // The parsed header is the same as the serialized header.
     assert_eq!(header.magic(), parsed.magic());
     assert_eq!(header.timestamp(), parsed.timestamp());
     assert_eq!(header.date(), parsed.date());
     assert_eq!(header.version(), parsed.version());
-    assert_eq!(header.firmware_size(), parsed.firmware_size());
+    assert_eq!(header.bin_size(), parsed.bin_size());
     assert_eq!(header.pubkey1(), parsed.pubkey1());
     assert_eq!(header.signature1(), parsed.signature1());
     assert_eq!(header.pubkey2(), parsed.pubkey2());
@@ -86,7 +82,7 @@ fn developer_singing() {
     assert_ne!(header.signature2(), [0; 64]);
 
     // The binary representation is correct.
-    assert_eq!(buf.len(), HEADER_SIZE + firmware.len());
+    assert_eq!(buf.len(), HEADER_SIZE + binary.len());
     // Magic number.
     assert_eq!(buf[..4], [0x50, 0x52, 0x4D, 0x31]);
     // Timestamp.
@@ -104,7 +100,7 @@ fn developer_singing() {
     assert_eq!(&buf[19..22], &[0, 0, 0]);
     // Version.
     assert_eq!(&buf[22..42], b"1.2.3\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0");
-    // Firmware size.
+    // Binary size.
     assert_eq!(buf[42..46], [4, 0, 0, 0]);
     // Public key 1.
     assert_eq!(&buf[46..79], [0; 33]);
@@ -120,14 +116,14 @@ fn developer_singing() {
 
 #[test]
 fn trusted_singing() {
-    let firmware = [0x01, 0x02, 0x03, 0x04];
+    let binary = [0x01, 0x02, 0x03, 0x04];
     const HEADER_SIZE: usize = 1024;
     let mut header = Header::sign_new(
         Magic::Atsama5d27KeyOs,
         "1.2.3-alpha1",
-        firmware.len().try_into().unwrap(),
+        binary.len().try_into().unwrap(),
         Signer::Trusted,
-        &firmware[..],
+        &binary[..],
         &Sha256,
         &Secp256k1Sign(KNOWN_PUBKEY1),
         HEADER_SIZE,
@@ -138,17 +134,23 @@ fn trusted_singing() {
 
     let mut buf = [0u8; HEADER_SIZE + 4];
     header.serialize(&mut buf).unwrap();
-    buf[HEADER_SIZE..].copy_from_slice(&firmware);
-    let parsed = Header::parse(&buf[..], &[KNOWN_PUBKEY1, KNOWN_PUBKEY2, KNOWN_PUBKEY3], &Sha256, &Secp256k1Verify, HEADER_SIZE)
-        .unwrap()
-        .unwrap();
+    buf[HEADER_SIZE..].copy_from_slice(&binary);
+    let parsed = Header::parse(
+        &buf[..],
+        &[KNOWN_PUBKEY1, KNOWN_PUBKEY2, KNOWN_PUBKEY3],
+        &Sha256,
+        &Secp256k1Verify,
+        HEADER_SIZE,
+    )
+    .unwrap()
+    .unwrap();
 
     // The parsed header is the same as the serialized header.
     assert_eq!(header.magic(), parsed.magic());
     assert_eq!(header.timestamp(), parsed.timestamp());
     assert_eq!(header.date(), parsed.date());
     assert_eq!(header.version(), parsed.version());
-    assert_eq!(header.firmware_size(), parsed.firmware_size());
+    assert_eq!(header.bin_size(), parsed.bin_size());
     assert_eq!(header.pubkey1(), parsed.pubkey1());
     assert_eq!(header.signature1(), parsed.signature1());
     assert_eq!(header.pubkey2(), parsed.pubkey2());
@@ -162,7 +164,7 @@ fn trusted_singing() {
     assert_eq!(header.signature2(), [0; 64]);
 
     // The binary representation is correct.
-    assert_eq!(buf.len(), HEADER_SIZE + firmware.len());
+    assert_eq!(buf.len(), HEADER_SIZE + binary.len());
     // Magic number.
     assert_eq!(buf[..4], [0x50, 0x52, 0x4D, 0x31]);
     // Timestamp.
@@ -180,7 +182,7 @@ fn trusted_singing() {
     assert_eq!(&buf[19..22], &[0, 0, 0]);
     // Version.
     assert_eq!(&buf[22..42], b"1.2.3-alpha1\0\0\0\0\0\0\0\0");
-    // Firmware size.
+    // Binary size.
     assert_eq!(buf[42..46], [4, 0, 0, 0]);
     // Public key 1.
     assert_eq!(&buf[46..79], KNOWN_PUBKEY1);
@@ -194,23 +196,27 @@ fn trusted_singing() {
     assert!(&buf[240..HEADER_SIZE].iter().all(|&b| b == 0));
 
     // Add second signature.
-    header
-        .add_second_signature(&Secp256k1Sign(KNOWN_PUBKEY3))
-        .unwrap();
+    header.add_second_signature(&Secp256k1Sign(KNOWN_PUBKEY3)).unwrap();
 
     let mut buf = [0u8; HEADER_SIZE + 4];
     header.serialize(&mut buf).unwrap();
-    buf[HEADER_SIZE..].copy_from_slice(&firmware);
-    let parsed = Header::parse(&buf[..], &[KNOWN_PUBKEY1, KNOWN_PUBKEY2, KNOWN_PUBKEY3], &Sha256, &Secp256k1Verify, HEADER_SIZE)
-        .unwrap()
-        .unwrap();
+    buf[HEADER_SIZE..].copy_from_slice(&binary);
+    let parsed = Header::parse(
+        &buf[..],
+        &[KNOWN_PUBKEY1, KNOWN_PUBKEY2, KNOWN_PUBKEY3],
+        &Sha256,
+        &Secp256k1Verify,
+        HEADER_SIZE,
+    )
+    .unwrap()
+    .unwrap();
 
     // The parsed header is the same as the serialized header.
     assert_eq!(header.magic(), parsed.magic());
     assert_eq!(header.timestamp(), parsed.timestamp());
     assert_eq!(header.date(), parsed.date());
     assert_eq!(header.version(), parsed.version());
-    assert_eq!(header.firmware_size(), parsed.firmware_size());
+    assert_eq!(header.bin_size(), parsed.bin_size());
     assert_eq!(header.pubkey1(), parsed.pubkey1());
     assert_eq!(header.signature1(), parsed.signature1());
     assert_eq!(header.pubkey2(), parsed.pubkey2());
@@ -224,7 +230,7 @@ fn trusted_singing() {
     assert_ne!(header.signature2(), [0; 64]);
 
     // The binary representation is correct.
-    assert_eq!(buf.len(), HEADER_SIZE + firmware.len());
+    assert_eq!(buf.len(), HEADER_SIZE + binary.len());
     // Magic number.
     assert_eq!(buf[..4], [0x50, 0x52, 0x4D, 0x31]);
     // Timestamp.
@@ -242,7 +248,7 @@ fn trusted_singing() {
     assert_eq!(&buf[19..22], &[0, 0, 0]);
     // Version.
     assert_eq!(&buf[22..42], b"1.2.3-alpha1\0\0\0\0\0\0\0\0");
-    // Firmware size.
+    // Binary size.
     assert_eq!(buf[42..46], [4, 0, 0, 0]);
     // Public key 1.
     assert_eq!(&buf[46..79], KNOWN_PUBKEY1);

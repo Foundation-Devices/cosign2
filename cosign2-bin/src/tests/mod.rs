@@ -27,8 +27,8 @@ fn dump_valid_header_one_signature() {
         signature1: true,
         signature2: false,
         reserved: Default::default(),
-        firmware: b"Hello, world!".to_vec(),
-        firmware_size: 13,
+        binary: b"Hello, world!".to_vec(),
+        bin_size: 13,
     }
     .input()
     .create_file();
@@ -46,7 +46,7 @@ fn dump_valid_header_one_signature() {
     assert!(output.stdout.contains("Apr 09 2024"));
     // Prints version.
     assert!(output.stdout.contains("0.0.77"));
-    // Prints firmware size.
+    // Prints binary size.
     assert!(output.stdout.contains("13 B (13)"));
     // Prints first pubkey in hex.
     assert!(output.stdout.contains(input::PUBKEY_1_HEX));
@@ -54,13 +54,9 @@ fn dump_valid_header_one_signature() {
     assert!(output.stdout.contains(sig1_half_1));
     assert!(output.stdout.contains(sig1_half_2));
     // Prints second pubkey in hex (all zeros).
-    assert!(output
-        .stdout
-        .contains("000000000000000000000000000000000000000000000000000000000000000000"));
+    assert!(output.stdout.contains("000000000000000000000000000000000000000000000000000000000000000000"));
     // Prints second signature in hex (all zeros).
-    assert!(output
-        .stdout
-        .contains("0000000000000000000000000000000000000000000000000000000000000000"));
+    assert!(output.stdout.contains("0000000000000000000000000000000000000000000000000000000000000000"));
 
     assert!(output.stderr.is_empty());
 }
@@ -77,8 +73,8 @@ fn dump_valid_header_two_signatures() {
         signature1: true,
         signature2: true,
         reserved: Default::default(),
-        firmware: b"Hello, world!".to_vec(),
-        firmware_size: 13,
+        binary: b"Hello, world!".to_vec(),
+        bin_size: 13,
     }
     .input()
     .create_file();
@@ -97,7 +93,7 @@ fn dump_valid_header_two_signatures() {
     assert!(output.stdout.contains("Apr 09 2024"));
     // Prints version.
     assert!(output.stdout.contains("0.0.77"));
-    // Prints firmware size.
+    // Prints binary size.
     assert!(output.stdout.contains("13 B (13)"));
     // Prints first pubkey in hex.
     assert!(output.stdout.contains(input::PUBKEY_1_HEX));
@@ -125,8 +121,8 @@ fn dump_invalid_magic() {
         signature1: true,
         signature2: true,
         reserved: Default::default(),
-        firmware: b"Hello, world!".to_vec(),
-        firmware_size: 13,
+        binary: b"Hello, world!".to_vec(),
+        bin_size: 13,
     }
     .input()
     .create_file();
@@ -150,13 +146,13 @@ fn dump_invalid_changed_fields() {
             input.version[2] = 0xCC;
         },
         |input: &mut Input| {
-            input.firmware_size[1] = 0xDD;
+            input.bin_size[1] = 0xDD;
         },
         |input: &mut Input| {
             input.reserved[22] = 0xEE;
         },
         |input: &mut Input| {
-            input.firmware[5] = 0xFF;
+            input.binary[5] = 0xFF;
         },
     ];
 
@@ -170,8 +166,8 @@ fn dump_invalid_changed_fields() {
             // Test some cases with two signatures.
             signature2: i % 2 == 0,
             reserved: Default::default(),
-            firmware: b"Hello, world!".to_vec(),
-            firmware_size: 13,
+            binary: b"Hello, world!".to_vec(),
+            bin_size: 13,
         }
         .input()
         .update(case)
@@ -194,8 +190,8 @@ fn dump_invalid_header_invalid_pubkey1() {
         signature1: true,
         signature2: true,
         reserved: Default::default(),
-        firmware: b"Hello, world!".to_vec(),
-        firmware_size: 13,
+        binary: b"Hello, world!".to_vec(),
+        bin_size: 13,
     }
     .input()
     .update(|input| {
@@ -219,8 +215,8 @@ fn dump_invalid_header_invalid_pubkey2() {
         signature1: true,
         signature2: true,
         reserved: Default::default(),
-        firmware: b"Hello, world!".to_vec(),
-        firmware_size: 13,
+        binary: b"Hello, world!".to_vec(),
+        bin_size: 13,
     }
     .input()
     .update(|input| {
@@ -244,8 +240,8 @@ fn dump_invalid_header_invalid_signature1() {
         signature1: true,
         signature2: true,
         reserved: Default::default(),
-        firmware: b"Hello, world!".to_vec(),
-        firmware_size: 13,
+        binary: b"Hello, world!".to_vec(),
+        bin_size: 13,
     }
     .input()
     .update(|input| {
@@ -269,8 +265,8 @@ fn dump_invalid_header_invalid_signature2() {
         signature1: true,
         signature2: true,
         reserved: Default::default(),
-        firmware: b"Hello, world!".to_vec(),
-        firmware_size: 13,
+        binary: b"Hello, world!".to_vec(),
+        bin_size: 13,
     }
     .input()
     .update(|input| {
@@ -298,7 +294,7 @@ fn sign_with_trusted_keys() {
         input_file.path().to_str().unwrap(),
         "--header-size",
         "1024",
-        "--firmware-version",
+        "--binary-version",
         "1.2.4-alpha1",
         "--target",
         "atsama5d27-keyos",
@@ -317,9 +313,7 @@ fn sign_with_trusted_keys() {
     assert!(output.stdout.contains("1.2.4-alpha1"));
     assert!(output.stdout.contains("13 B (13)"));
     assert!(output.stdout.contains(input::PUBKEY_1_HEX));
-    assert!(output
-        .stdout
-        .contains("000000000000000000000000000000000000000000000000000000000000000000"));
+    assert!(output.stdout.contains("000000000000000000000000000000000000000000000000000000000000000000"));
     assert!(output.stderr.is_empty());
 
     // Sign the image with the second key.
@@ -351,12 +345,8 @@ fn sign_with_trusted_keys() {
     assert!(output.stdout.contains("13 B (13)"));
     assert!(output.stdout.contains(input::PUBKEY_1_HEX));
     assert!(output.stdout.contains(input::PUBKEY_2_HEX));
-    assert!(!output
-        .stdout
-        .contains("000000000000000000000000000000000000000000000000000000000000000000"));
-    assert!(!output
-        .stdout
-        .contains("0000000000000000000000000000000000000000000000000000000000000000"));
+    assert!(!output.stdout.contains("000000000000000000000000000000000000000000000000000000000000000000"));
+    assert!(!output.stdout.contains("0000000000000000000000000000000000000000000000000000000000000000"));
     assert!(output.stderr.is_empty());
 }
 
@@ -371,8 +361,8 @@ fn sign_with_trusted_key_from_config() {
         signature1: true,
         signature2: false,
         reserved: Default::default(),
-        firmware: b"Hello, world!".to_vec(),
-        firmware_size: 13,
+        binary: b"Hello, world!".to_vec(),
+        bin_size: 13,
     }
     .input()
     .create_file();
@@ -418,12 +408,8 @@ fn sign_with_trusted_key_from_config() {
     assert!(output.stdout.contains("13 B (13)"));
     assert!(output.stdout.contains(input::PUBKEY_1_HEX));
     assert!(output.stdout.contains(input::PUBKEY_2_HEX));
-    assert!(!output
-        .stdout
-        .contains("000000000000000000000000000000000000000000000000000000000000000000"));
-    assert!(!output
-        .stdout
-        .contains("0000000000000000000000000000000000000000000000000000000000000000"));
+    assert!(!output.stdout.contains("000000000000000000000000000000000000000000000000000000000000000000"));
+    assert!(!output.stdout.contains("0000000000000000000000000000000000000000000000000000000000000000"));
     assert!(output.stderr.is_empty());
 }
 
@@ -438,8 +424,8 @@ fn pubkey_in_config_and_cli() {
         signature1: true,
         signature2: false,
         reserved: Default::default(),
-        firmware: b"Hello, world!".to_vec(),
-        firmware_size: 13,
+        binary: b"Hello, world!".to_vec(),
+        bin_size: 13,
     }
     .input()
     .create_file();
@@ -475,9 +461,7 @@ fn pubkey_in_config_and_cli() {
 
     assert_eq!(output.exit_code, ExitCode(1));
     assert!(output.stdout.is_empty());
-    assert!(output
-        .stderr
-        .contains("pubkey specified in both config and cli"));
+    assert!(output.stderr.contains("pubkey specified in both config and cli"));
     let mut buf = Vec::new();
     output_file.as_file().read_to_end(&mut buf).unwrap();
     assert!(buf.is_empty());
@@ -494,8 +478,8 @@ fn secret_in_config_and_cli() {
         signature1: true,
         signature2: false,
         reserved: Default::default(),
-        firmware: b"Hello, world!".to_vec(),
-        firmware_size: 13,
+        binary: b"Hello, world!".to_vec(),
+        bin_size: 13,
     }
     .input()
     .create_file();
@@ -531,9 +515,7 @@ fn secret_in_config_and_cli() {
 
     assert_eq!(output.exit_code, ExitCode(1));
     assert!(output.stdout.is_empty());
-    assert!(output
-        .stderr
-        .contains("secret specified in both config and cli"));
+    assert!(output.stderr.contains("secret specified in both config and cli"));
     let mut buf = Vec::new();
     output_file.as_file().read_to_end(&mut buf).unwrap();
     assert!(buf.is_empty());
@@ -550,8 +532,8 @@ fn known_pubkeys_in_config_and_cli() {
         signature1: true,
         signature2: false,
         reserved: Default::default(),
-        firmware: b"Hello, world!".to_vec(),
-        firmware_size: 13,
+        binary: b"Hello, world!".to_vec(),
+        bin_size: 13,
     }
     .input()
     .create_file();
@@ -590,9 +572,7 @@ fn known_pubkeys_in_config_and_cli() {
 
     assert_eq!(output.exit_code, ExitCode(1));
     assert!(output.stdout.is_empty());
-    assert!(output
-        .stderr
-        .contains("known pubkeys specified in both config and cli"));
+    assert!(output.stderr.contains("known pubkeys specified in both config and cli"));
     let mut buf = Vec::new();
     output_file.as_file().read_to_end(&mut buf).unwrap();
     assert!(buf.is_empty());
@@ -609,8 +589,8 @@ fn target_in_config_and_cli() {
         signature1: true,
         signature2: false,
         reserved: Default::default(),
-        firmware: b"Hello, world!".to_vec(),
-        firmware_size: 13,
+        binary: b"Hello, world!".to_vec(),
+        bin_size: 13,
     }
     .input()
     .create_file();
@@ -645,9 +625,7 @@ fn target_in_config_and_cli() {
 
     assert_eq!(output.exit_code, ExitCode(1));
     assert!(output.stdout.is_empty());
-    assert!(output
-        .stderr
-        .contains("target specified in both config and cli"));
+    assert!(output.stderr.contains("target specified in both config and cli"));
     let mut buf = Vec::new();
     output_file.as_file().read_to_end(&mut buf).unwrap();
     assert!(buf.is_empty());
@@ -668,7 +646,7 @@ fn sign_with_developer_key() {
         input_file.path().to_str().unwrap(),
         "--header-size",
         "1024",
-        "--firmware-version",
+        "--binary-version",
         "1.2.4-alpha1",
         "--target",
         "atsama5d27-keyos",
@@ -687,9 +665,7 @@ fn sign_with_developer_key() {
     assert!(output.stdout.contains("1.2.4-alpha1"));
     assert!(output.stdout.contains("13 B (13)"));
     assert!(output.stdout.contains(input::PUBKEY_1_HEX));
-    assert!(output
-        .stdout
-        .contains("000000000000000000000000000000000000000000000000000000000000000000"));
+    assert!(output.stdout.contains("000000000000000000000000000000000000000000000000000000000000000000"));
     assert!(output.stderr.is_empty());
 }
 
@@ -707,7 +683,7 @@ fn sign_with_developer_key_in_place() {
         input_file.path().to_str().unwrap(),
         "--header-size",
         "1024",
-        "--firmware-version",
+        "--binary-version",
         "1.2.4-alpha1",
         "--target",
         "atsama5d27-keyos",
@@ -725,9 +701,7 @@ fn sign_with_developer_key_in_place() {
     assert!(output.stdout.contains("1.2.4-alpha1"));
     assert!(output.stdout.contains("13 B (13)"));
     assert!(output.stdout.contains(input::PUBKEY_1_HEX));
-    assert!(output
-        .stdout
-        .contains("000000000000000000000000000000000000000000000000000000000000000000"));
+    assert!(output.stdout.contains("000000000000000000000000000000000000000000000000000000000000000000"));
     assert!(output.stderr.is_empty());
 }
 
@@ -746,7 +720,7 @@ fn sign_with_developer_key_in_place_with_output_file() {
         input_file.path().to_str().unwrap(),
         "--header-size",
         "1024",
-        "--firmware-version",
+        "--binary-version",
         "1.2.4-alpha1",
         "--target",
         "atsama5d27-keyos",
@@ -757,9 +731,7 @@ fn sign_with_developer_key_in_place_with_output_file() {
 
     assert_eq!(output.exit_code, ExitCode(1));
     assert!(output.stdout.is_empty());
-    assert!(output
-        .stderr
-        .contains("cannot specify both --in-place and --output (-o)"));
+    assert!(output.stderr.contains("cannot specify both --in-place and --output (-o)"));
     let mut buf = Vec::new();
     output_file.as_file().read_to_end(&mut buf).unwrap();
     assert!(buf.is_empty());
@@ -777,8 +749,8 @@ fn resign_with_developer_key() {
         signature1: false,
         signature2: true,
         reserved: Default::default(),
-        firmware: b"Hello, world!".to_vec(),
-        firmware_size: 13,
+        binary: b"Hello, world!".to_vec(),
+        bin_size: 13,
     }
     .input()
     .create_file();
@@ -833,9 +805,7 @@ fn sign_pubkey_mismatch() {
 
     assert_eq!(output.exit_code, ExitCode(1));
     assert!(output.stdout.is_empty());
-    assert!(output
-        .stderr
-        .contains("public key does not match secret key"));
+    assert!(output.stderr.contains("public key does not match secret key"));
     let mut buf = Vec::new();
     output_file.as_file().read_to_end(&mut buf).unwrap();
     assert!(buf.is_empty());
@@ -853,8 +823,8 @@ fn resign_with_trusted_key() {
         signature1: true,
         signature2: false,
         reserved: Default::default(),
-        firmware: b"Hello, world!".to_vec(),
-        firmware_size: 13,
+        binary: b"Hello, world!".to_vec(),
+        bin_size: 13,
     }
     .input()
     .create_file();
@@ -893,8 +863,8 @@ fn sign_header_contains_unknown_pubkey() {
         signature1: true,
         signature2: false,
         reserved: Default::default(),
-        firmware: b"Hello, world!".to_vec(),
-        firmware_size: 13,
+        binary: b"Hello, world!".to_vec(),
+        bin_size: 13,
     }
     .input()
     .create_file();
@@ -935,8 +905,8 @@ fn sign_header_with_unknown_pubkey() {
         signature1: true,
         signature2: false,
         reserved: Default::default(),
-        firmware: b"Hello, world!".to_vec(),
-        firmware_size: 13,
+        binary: b"Hello, world!".to_vec(),
+        bin_size: 13,
     }
     .input()
     .create_file();
@@ -960,9 +930,7 @@ fn sign_header_with_unknown_pubkey() {
 
     assert_eq!(output.exit_code, ExitCode(1));
     assert!(output.stdout.is_empty());
-    assert!(output
-        .stderr
-        .contains("signing key is not in known pubkeys list"));
+    assert!(output.stderr.contains("signing key is not in known pubkeys list"));
     let mut buf = Vec::new();
     output_file.as_file().read_to_end(&mut buf).unwrap();
     assert!(buf.is_empty());
@@ -980,8 +948,8 @@ fn sign_header_with_known_pubkeys() {
         signature1: true,
         signature2: false,
         reserved: Default::default(),
-        firmware: b"Hello, world!".to_vec(),
-        firmware_size: 13,
+        binary: b"Hello, world!".to_vec(),
+        bin_size: 13,
     }
     .input()
     .create_file();
@@ -1021,8 +989,8 @@ fn sign_header_invalid_version_utf8() {
         signature1: true,
         signature2: false,
         reserved: Default::default(),
-        firmware: b"Hello, world!".to_vec(),
-        firmware_size: 13,
+        binary: b"Hello, world!".to_vec(),
+        bin_size: 13,
     }
     .input()
     .create_file();
@@ -1058,8 +1026,8 @@ fn sign_header_invalid_version_semver() {
         signature1: true,
         signature2: false,
         reserved: Default::default(),
-        firmware: b"Hello, world!".to_vec(),
-        firmware_size: 13,
+        binary: b"Hello, world!".to_vec(),
+        bin_size: 13,
     }
     .input()
     .create_file();
@@ -1095,8 +1063,8 @@ fn sign_header_invalid_date_utf8() {
         signature1: true,
         signature2: false,
         reserved: Default::default(),
-        firmware: b"Hello, world!".to_vec(),
-        firmware_size: 13,
+        binary: b"Hello, world!".to_vec(),
+        bin_size: 13,
     }
     .input()
     .create_file();
@@ -1121,9 +1089,9 @@ fn sign_header_invalid_date_utf8() {
     assert!(output.stderr.contains("invalid date UTF-8"));
 }
 
-/// Attempt to sign an image with an invalid firmware size.
+/// Attempt to sign an image with an invalid binary size.
 #[test]
-fn sign_header_invalid_firmware_size() {
+fn sign_header_invalid_binary_size() {
     let (input_file, _, _) = input::Params {
         magic: true,
         timestamp: 1712660771,
@@ -1132,8 +1100,8 @@ fn sign_header_invalid_firmware_size() {
         signature1: true,
         signature2: false,
         reserved: Default::default(),
-        firmware: b"Hello, world!".to_vec(),
-        firmware_size: 53,
+        binary: b"Hello, world!".to_vec(),
+        bin_size: 53,
     }
     .input()
     .create_file();
@@ -1155,7 +1123,7 @@ fn sign_header_invalid_firmware_size() {
 
     assert_eq!(output.exit_code, ExitCode(1));
     assert!(output.stdout.is_empty());
-    assert!(output.stderr.contains("invalid firmware size"));
+    assert!(output.stderr.contains("invalid binary size"));
     assert!(output.stderr.contains("53"));
     assert!(output.stderr.contains("13"));
 }
@@ -1163,11 +1131,7 @@ fn sign_header_invalid_firmware_size() {
 fn test<const N: usize>(args: [&str; N]) -> Output {
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();
-    let exit_code = crate::main_args(
-        std::iter::once("cosign2").chain(args),
-        &mut stdout,
-        &mut stderr,
-    );
+    let exit_code = crate::main_args(std::iter::once("cosign2").chain(args), &mut stdout, &mut stderr);
     println!("* args: {:?}", args);
     println!("* exit_code: {:?}", exit_code);
     println!("* stdout:\n{}", String::from_utf8_lossy(&stdout));

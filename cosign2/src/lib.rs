@@ -28,7 +28,7 @@ pub struct Header {
     timestamp: [u8; 4],
     date: [u8; 14],
     version: [u8; 20],
-    firmware_size: [u8; 4],
+    bin_size: [u8; 4],
     pubkey1: [u8; 33],
     signature1: [u8; 64],
     pubkey2: [u8; 33],
@@ -36,10 +36,10 @@ pub struct Header {
 
     /// Size of the header in bytes (not present in the header).
     size: usize,
-    /// Hash of the header and firmware code (not present in the header).
+    /// Hash of the header and binary code (not present in the header).
     hash: [u8; 32],
-    /// Hash of the firmware only (not present in the header).
-    firmware_hash: [u8; 32],
+    /// Hash of the binary only (not present in the header).
+    bin_hash: [u8; 32],
     /// State of trust according to included signatures (not present in the header).
     trust: Trust,
 }
@@ -85,26 +85,26 @@ impl Header {
     /// Magic number.
     pub fn magic(&self) -> Magic { Magic::from_bytes(self.magic).expect("validated") }
 
-    /// Firmware timestamp in seconds since the Unix epoch.
+    /// Binary timestamp in seconds since the Unix epoch.
     pub fn timestamp(&self) -> u32 { u32::from_le_bytes(self.timestamp) }
 
-    /// Human-readable firmware date.
+    /// Human-readable binary date.
     ///
-    /// Used for displaying the firmware date during device boot, where advanced
+    /// Used for displaying the binary date during device boot, where advanced
     /// date manipulation functions are not available.
     pub fn date(&self) -> &str {
         let first_zero = self.date.iter().position(|&b| b == 0).unwrap_or(self.date.len());
         core::str::from_utf8(&self.date[..first_zero]).expect("validated")
     }
 
-    /// Firmware version.
+    /// Binary version.
     pub fn version(&self) -> &str {
         let first_zero = self.version.iter().position(|&b| b == 0).unwrap_or(self.version.len());
         core::str::from_utf8(&self.version[..first_zero]).expect("validated")
     }
 
-    /// The size of the firmware.
-    pub fn firmware_size(&self) -> u32 { u32::from_le_bytes(self.firmware_size) }
+    /// The size of the binary.
+    pub fn bin_size(&self) -> u32 { u32::from_le_bytes(self.bin_size) }
 
     /// Public key of the first signer.
     pub fn pubkey1(&self) -> [u8; 33] { self.pubkey1 }
@@ -118,11 +118,11 @@ impl Header {
     /// Second signature.
     pub fn signature2(&self) -> [u8; 64] { self.signature2 }
 
-    /// Hash of the firmware that this header is for.
+    /// Hash of the binary that this header is for.
     ///
     /// All zeros if the header was created using
     /// [`parse_unverified`](Header::parse_unverified).
-    pub fn firmware_hash(&self) -> &[u8; 32] { &self.firmware_hash }
+    pub fn binary_hash(&self) -> &[u8; 32] { &self.bin_hash }
 
     /// State of trust according to included signatures.
     pub fn trust(&self) -> Trust { self.trust }
@@ -133,7 +133,7 @@ impl Header {
         version: &str,
         timestamp: u32,
         signer: Signer,
-        firmware: &[u8],
+        binary: &[u8],
         sha: &impl Sha256,
         secp: &impl Secp256k1Sign,
         header_size: usize,
@@ -151,21 +151,21 @@ impl Header {
             timestamp: timestamp.to_le_bytes(),
             date: [0; 14],
             version: [0; 20],
-            firmware_size: u32::try_from(firmware.len()).map_err(|_| Error::FirmwareTooLong)?.to_le_bytes(),
+            bin_size: u32::try_from(binary.len()).map_err(|_| Error::BinaryTooLong)?.to_le_bytes(),
             pubkey1: [0; 33],
             signature1: [0; 64],
             pubkey2: [0; 33],
             signature2: [0; 64],
             size: header_size,
             hash: [0; 32],
-            firmware_hash: [0; 32],
+            bin_hash: [0; 32],
             trust: Trust::Unverified,
         };
         header.set_date(timestamp);
         header.set_version(version)?;
         let reserved = [0; Self::MAX_SIZE];
-        header.hash(&reserved[..header_size - header.payload_size()], firmware, sha);
-        header.validate_fields(firmware, true)?;
+        header.hash(&reserved[..header_size - header.payload_size()], binary, sha);
+        header.validate_fields(binary, true)?;
 
         // Sign the header.
         match signer {
@@ -216,11 +216,11 @@ impl Header {
         }
 
         let reserved = &data[header.payload_size()..header_size];
-        let firmware = &data[header_size..];
-        header.hash(reserved, firmware, sha);
+        let binary = &data[header_size..];
+        header.hash(reserved, binary, sha);
         header.verify_signatures(known_signers, secp)?;
         header.update_trust(known_signers)?;
-        header.validate_fields(firmware, true)?;
+        header.validate_fields(binary, true)?;
 
         Ok(Some(header))
     }
@@ -259,7 +259,7 @@ impl Header {
         buf[4..8].copy_from_slice(&self.timestamp);
         buf[8..22].copy_from_slice(&self.date);
         buf[22..42].copy_from_slice(&self.version);
-        buf[42..46].copy_from_slice(&self.firmware_size);
+        buf[42..46].copy_from_slice(&self.bin_size);
         buf[46..79].copy_from_slice(&self.pubkey1);
         buf[79..143].copy_from_slice(&self.signature1);
         buf[143..176].copy_from_slice(&self.pubkey2);
@@ -296,7 +296,7 @@ impl Header {
             + self.timestamp.len()
             + self.date.len()
             + self.version.len()
-            + self.firmware_size.len()
+            + self.bin_size.len()
             + self.pubkey1.len()
             + self.signature1.len()
             + self.pubkey2.len()
@@ -353,7 +353,7 @@ impl Header {
         let timestamp = data[4..8].try_into().unwrap();
         let date = data[8..22].try_into().unwrap();
         let version = data[22..42].try_into().unwrap();
-        let firmware_size = data[42..46].try_into().unwrap();
+        let bin_size = data[42..46].try_into().unwrap();
         let pubkey1 = data[46..79].try_into().unwrap();
         let signature1 = data[79..143].try_into().unwrap();
         let pubkey2 = data[143..176].try_into().unwrap();
@@ -365,19 +365,19 @@ impl Header {
             timestamp,
             date,
             version,
-            firmware_size,
+            bin_size,
             pubkey1,
             signature1,
             pubkey2,
             signature2,
             hash: [0; 32],
-            firmware_hash: [0; 32],
+            bin_hash: [0; 32],
             trust: Trust::Unverified,
         }))
     }
 
     /// Hash up the header and store it in the `hash` field.
-    fn hash(&mut self, reserved: &[u8], firmware: &[u8], sha: &impl Sha256) {
+    fn hash(&mut self, reserved: &[u8], binary: &[u8], sha: &impl Sha256) {
         let mut hash_buf = [0; 128];
 
         // Fill header hash buf with header data
@@ -390,21 +390,21 @@ impl Header {
         offset += self.date.len();
         hash_buf[offset..offset + self.version.len()].copy_from_slice(&self.version);
         offset += self.version.len();
-        hash_buf[offset..offset + self.firmware_size.len()].copy_from_slice(&self.firmware_size);
+        hash_buf[offset..offset + self.bin_size.len()].copy_from_slice(&self.bin_size);
 
         let header_hash = sha.hash(&hash_buf);
         let reserved_hash = sha.hash(reserved);
-        let firmware_hash = sha.hash(firmware);
+        let bin_hash = sha.hash(binary);
 
         hash_buf.fill(0);
         hash_buf[0..32].copy_from_slice(&header_hash);
         hash_buf[32..64].copy_from_slice(&reserved_hash);
-        hash_buf[64..96].copy_from_slice(&firmware_hash);
+        hash_buf[64..96].copy_from_slice(&bin_hash);
         let hash = sha.hash(&hash_buf);
 
         // Hash twice to prevent length extension attacks
         self.hash = sha.hash(&hash);
-        self.firmware_hash = firmware_hash;
+        self.bin_hash = bin_hash;
     }
 
     fn verify_signatures(
@@ -437,7 +437,7 @@ impl Header {
     }
 
     /// Validate the fields in the header.
-    fn validate_fields(&self, firmware: &[u8], check_size: bool) -> Result<(), Error> {
+    fn validate_fields(&self, binary: &[u8], check_size: bool) -> Result<(), Error> {
         // Validate that the version string is UTF-8 formatted according to SemVer, and
         // that the unused bytes are all zero.
         let first_zero = self.version.iter().position(|&b| b == 0).unwrap_or(self.version.len());
@@ -457,15 +457,12 @@ impl Header {
             return Err(Error::InvalidDateTrailingBytes);
         }
 
-        // Verify that the firmware size is correct if requested
+        // Verify that the binary size is correct if requested
         if check_size {
-            let firmware_size = u32::from_le_bytes(self.firmware_size);
-            let actual_firmware_size = u32::try_from(firmware.len()).map_err(|_| Error::FirmwareTooLong)?;
-            if firmware_size != actual_firmware_size {
-                return Err(Error::InvalidFirmwareSize {
-                    header: firmware_size,
-                    actual: actual_firmware_size,
-                });
+            let bin_size = u32::from_le_bytes(self.bin_size);
+            let actual_bin_size = u32::try_from(binary.len()).map_err(|_| Error::BinaryTooLong)?;
+            if bin_size != actual_bin_size {
+                return Err(Error::InvalidBinarySize { header: bin_size, actual: actual_bin_size });
             }
         }
 
@@ -480,7 +477,7 @@ impl Header {
         Ok(())
     }
 
-    /// Set the firmware date field.
+    /// Set the binary date field.
     fn set_date(&mut self, timestamp: u32) {
         let date = chrono::DateTime::from_timestamp(timestamp.into(), 0).expect("before 2106");
         let month = match date.month() {
@@ -511,7 +508,7 @@ impl Header {
         self.date[10] = ascii_digit(year % 10);
     }
 
-    /// Set the firmware version field.
+    /// Set the binary version field.
     fn set_version(&mut self, version: &str) -> Result<(), Error> {
         if version.len() > self.version.len() {
             return Err(Error::VersionTooLong);
@@ -521,7 +518,7 @@ impl Header {
     }
 }
 
-/// Who is signing the firmware.
+/// Who is signing the binary.
 pub enum Signer {
     /// Signed by a trusted identity from Foundation Devices, Inc.
     ///
@@ -579,13 +576,13 @@ fn ascii_digit(b: u32) -> u8 {
 
 #[derive(Debug)]
 pub enum Error {
-    FirmwareTooLong,
+    BinaryTooLong,
     HeaderTooShort,
     HeaderTooLong,
     HeaderWithNoSignature,
     InvalidDateTrailingBytes,
     InvalidDateUtf8,
-    InvalidFirmwareSize { header: u32, actual: u32 },
+    InvalidBinarySize { header: u32, actual: u32 },
     InvalidPubkey1,
     InvalidPubkey2,
     InvalidReservedBytes,
@@ -608,14 +605,14 @@ pub enum Error {
 impl core::fmt::Display for Error {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::FirmwareTooLong => write!(f, "firmware too long"),
+            Self::BinaryTooLong => write!(f, "binary too long"),
             Self::HeaderTooShort => write!(f, "header too short"),
             Self::HeaderTooLong => write!(f, "header too long"),
             Self::HeaderWithNoSignature => write!(f, "header with no signature"),
             Self::InvalidDateTrailingBytes => write!(f, "invalid date trailing bytes in header"),
             Self::InvalidDateUtf8 => write!(f, "invalid date UTF-8 in header"),
-            Self::InvalidFirmwareSize { header: in_header, actual } => {
-                write!(f, "invalid firmware size in header: should be {actual}, but is {in_header}",)
+            Self::InvalidBinarySize { header: in_header, actual } => {
+                write!(f, "invalid binary size in header: should be {actual}, but is {in_header}",)
             }
             Self::InvalidPubkey1 => write!(f, "invalid pubkey1 in header"),
             Self::InvalidPubkey2 => write!(f, "invalid pubkey2 in header"),
