@@ -80,7 +80,12 @@ The config file is in TOML and has the following format:
 ```toml
 pubkey = "02118f59082b8e26753c1cab1bfead3259344c03312cbb4ff7bdecceb915e92c9b"
 secret = "/absolute/path/to/private_key.pem" # NOTE: the path must be absolute
-known_pubkeys = []
+known_pubkeys = [
+    "03bf014e1a37a113089bea7b50ee9bd7733189ecd6afb7e051a6e95f99b97da5e9",
+    "03040e47c1cde8978085bdc8b44df85e7c0b2e1ea586697b5d385e523d3f908bc3",
+    "038de8dd1cbad8bf1da7ff64b8a9b4a375f0205eff41f7f9dca8e91c4cf0951daa",
+    "03cb8e4219d3c8f269ab2ed3acb71a4b1722c76a0c348ea11fa79b4639bef45094",
+]
 target = "atsama5d27-keyos"
 ```
 
