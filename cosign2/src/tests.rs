@@ -33,7 +33,7 @@ impl crate::Sha256 for Sha256 {
 }
 
 #[test]
-fn developer_singing() {
+fn developer_signing() {
     let binary = [0x01, 0x02, 0x03, 0x04];
     const HEADER_SIZE: usize = 1024;
     let header = Header::sign_new(
@@ -115,7 +115,7 @@ fn developer_singing() {
 }
 
 #[test]
-fn trusted_singing() {
+fn trusted_signing() {
     let binary = [0x01, 0x02, 0x03, 0x04];
     const HEADER_SIZE: usize = 1024;
     let mut header = Header::sign_new(
