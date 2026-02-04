@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use cosign2::Header;
 
 #[derive(clap::Parser)]
+#[command(version)]
 pub struct Args {
     #[command(subcommand)]
     pub command: Command,
