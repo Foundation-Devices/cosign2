@@ -1,4 +1,7 @@
-#![no_std]
+#![cfg_attr(not(feature = "std"), no_std)]
+
+#[cfg(feature = "std")]
+extern crate std;
 
 #[cfg(feature = "semver")]
 use core::str::FromStr;
@@ -47,6 +50,15 @@ pub struct Header {
 /// SHA-256 hash function.
 pub trait Sha256 {
     fn hash(&self, data: &[u8]) -> [u8; 32];
+}
+
+#[cfg(feature = "std")]
+pub trait Sha256Streaming {
+    type Error;
+
+    /// `total_len`: total length of data to hash
+    /// `reader`: reader that provides the data to hash (e.g., file)
+    fn hash_streaming<R: std::io::Read>(&self, total_len: usize, reader: R) -> Result<[u8; 32], Self::Error>;
 }
 
 /// ECDSA secp256k1 signing.
@@ -248,6 +260,63 @@ impl Header {
         }
     }
 
+    /// Parse a header with streaming hash computation
+    ///
+    /// This is a memory-efficient version of [`parse`](Header::parse) that uses
+    /// streaming SHA-256 to hash the binary data without loading it entirely into memory
+    #[cfg(feature = "std")]
+    pub fn parse_streaming<E, R>(
+        header_data: &[u8],
+        binary_size: usize,
+        known_signers: &[[u8; 33]],
+        sha: &impl Sha256,
+        sha_streaming: &impl Sha256Streaming<Error = E>,
+        secp: &impl Secp256k1Verify,
+        header_size: usize,
+        binary_reader: R,
+    ) -> Result<Option<Self>, Error>
+    where
+        E: core::fmt::Debug,
+        R: std::io::Read,
+    {
+        if header_size > Self::MAX_SIZE {
+            return Err(Error::HeaderTooLong);
+        }
+        if header_data.len() < header_size {
+            return Err(Error::HeaderTooShort);
+        }
+
+        let Some(mut header) = Header::deserialize(header_data, header_size)? else {
+            return Ok(None);
+        };
+
+        // When parsing an existing header, there should always be at least one
+        // signature.
+        if header.signature1 == [0; 64] && header.signature2 == [0; 64] {
+            return Err(Error::HeaderWithNoSignature);
+        }
+
+        // Validate binary size matches header
+        if header.bin_size() as usize != binary_size {
+            return Err(Error::InvalidSize);
+        }
+
+        let reserved = &header_data[header.payload_size()..header_size];
+
+        // Hash the binary with a streaming SHA-256
+        header.hash_streaming(reserved, binary_size, sha, sha_streaming, binary_reader)
+            .map_err(|_| Error::HashError)?;
+
+        header.verify_signatures(known_signers, secp)?;
+        header.update_trust(known_signers)?;
+
+        // Use validate_fields with check_size: `false` since we already validated
+        // binary size above and don't have the binary slice in memory
+        header.validate_fields(&[], false)?;
+
+        Ok(Some(header))
+    }
+
     /// Serialize the header to a buffer. Exactly [`self.size`] bytes will be
     /// written.
     pub fn serialize(&self, buf: &mut [u8]) -> Result<(), Error> {
@@ -376,8 +445,8 @@ impl Header {
         }))
     }
 
-    /// Hash up the header and store it in the `hash` field.
-    fn hash(&mut self, reserved: &[u8], binary: &[u8], sha: &impl Sha256) {
+    /// Hash up the header fields (magic, timestamp, date, version, bin_size)
+    fn compute_header_fields_hash(&self, sha: &impl Sha256) -> [u8; 32] {
         let mut hash_buf = [0; 128];
 
         // Fill header hash buf with header data
@@ -391,12 +460,13 @@ impl Header {
         hash_buf[offset..offset + self.version.len()].copy_from_slice(&self.version);
         offset += self.version.len();
         hash_buf[offset..offset + self.bin_size.len()].copy_from_slice(&self.bin_size);
+        sha.hash(&hash_buf)
+    }
 
-        let header_hash = sha.hash(&hash_buf);
-        let reserved_hash = sha.hash(reserved);
-        let bin_hash = sha.hash(binary);
-
-        hash_buf.fill(0);
+    /// Compute the final hash from the header, reserved, and binary hashes
+    /// Sets `self.hash` and `self.bin_hash`
+    fn finalize_hash(&mut self, header_hash: [u8; 32], reserved_hash: [u8; 32], bin_hash: [u8; 32], sha: &impl Sha256) {
+        let mut hash_buf = [0u8; 128];
         hash_buf[0..32].copy_from_slice(&header_hash);
         hash_buf[32..64].copy_from_slice(&reserved_hash);
         hash_buf[64..96].copy_from_slice(&bin_hash);
@@ -405,6 +475,32 @@ impl Header {
         // Hash twice to prevent length extension attacks
         self.hash = sha.hash(&hash);
         self.bin_hash = bin_hash;
+    }
+
+    /// Hash up the header and store it in the `hash` field
+    fn hash(&mut self, reserved: &[u8], binary: &[u8], sha: &impl Sha256) {
+        let header_hash = self.compute_header_fields_hash(sha);
+        let reserved_hash = sha.hash(reserved);
+        let bin_hash = sha.hash(binary);
+        self.finalize_hash(header_hash, reserved_hash, bin_hash, sha);
+    }
+
+    /// Hash up the header using streaming SHA-256 for the binary data
+    #[cfg(feature = "std")]
+    fn hash_streaming<E, R: std::io::Read>(
+        &mut self,
+        reserved: &[u8],
+        binary_size: usize,
+        sha: &impl Sha256,
+        sha_streaming: &impl Sha256Streaming<Error = E>,
+        binary_reader: R,
+    ) -> Result<(), E>
+    {
+        let header_hash = self.compute_header_fields_hash(sha);
+        let reserved_hash = sha.hash(reserved);
+        let bin_hash = sha_streaming.hash_streaming(binary_size, binary_reader)?;
+        self.finalize_hash(header_hash, reserved_hash, bin_hash, sha);
+        Ok(())
     }
 
     fn verify_signatures(
@@ -600,6 +696,8 @@ pub enum Error {
     UnknownPubkey2,
     VersionTooLong,
     BrokenSignatures,
+    InvalidSize,
+    HashError,
 }
 
 impl core::fmt::Display for Error {
@@ -635,6 +733,8 @@ impl core::fmt::Display for Error {
             Self::UnknownPubkey2 => write!(f, "unknown pubkey2 in header"),
             Self::VersionTooLong => write!(f, "version too long to write in header"),
             Self::BrokenSignatures => write!(f, "broken signatures scheme in header"),
+            Self::InvalidSize => write!(f, "binary size in the header doesn't match actual size"),
+            Self::HashError => write!(f, "error during streaming hash computation"),
         }
     }
 }

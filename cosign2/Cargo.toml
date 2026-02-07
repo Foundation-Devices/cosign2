@@ -9,4 +9,5 @@ semver = { version = "1.0", default-features = false, optional = true }
 
 [features]
 semver = ["dep:semver"]
+std = []
 default = []
