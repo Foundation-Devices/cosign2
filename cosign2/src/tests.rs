@@ -1,9 +1,5 @@
 use super::*;
 
-const MONTHS: [&[u8]; 12] =
-    [b"Jan", b"Feb", b"Mar", b"Apr", b"May", b"Jun", b"Jul", b"Aug", b"Sep", b"Oct", b"Nov", b"Dec"];
-const DIGITS: [u8; 10] = [b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9'];
-
 const DEV_PUBKEY1: [u8; 33] = [0x12; 33];
 
 const KNOWN_PUBKEY1: [u8; 33] = [0xAB; 33];
@@ -30,6 +26,17 @@ struct Sha256;
 
 impl crate::Sha256 for Sha256 {
     fn hash(&self, _data: &[u8]) -> [u8; 32] { [1; 32] }
+}
+
+fn timestamp_for_date(year: i32, month: u32, day: u32) -> u32 {
+    chrono::NaiveDate::from_ymd_opt(year, month, day)
+        .unwrap()
+        .and_hms_opt(0, 0, 0)
+        .unwrap()
+        .and_utc()
+        .timestamp()
+        .try_into()
+        .unwrap()
 }
 
 #[test]
@@ -88,16 +95,8 @@ fn developer_signing() {
     // Timestamp.
     assert_eq!(buf[4..8], header.timestamp().to_le_bytes(),);
     // Date.
-    assert!(MONTHS.contains(&&buf[8..11]));
-    assert_eq!(buf[11], b' ');
-    assert!(DIGITS.contains(&buf[12]));
-    assert!(DIGITS.contains(&buf[13]));
-    assert_eq!(buf[14], b' ');
-    assert!(DIGITS.contains(&buf[15]));
-    assert!(DIGITS.contains(&buf[16]));
-    assert!(DIGITS.contains(&buf[17]));
-    assert!(DIGITS.contains(&buf[18]));
-    assert_eq!(&buf[19..22], &[0, 0, 0]);
+    assert_eq!(&buf[8..20], b"Jan. 1, 1970");
+    assert_eq!(&buf[20..22], &[0, 0]);
     // Version.
     assert_eq!(&buf[22..42], b"1.2.3\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0");
     // Binary size.
@@ -170,16 +169,8 @@ fn trusted_signing() {
     // Timestamp.
     assert_eq!(buf[4..8], header.timestamp().to_le_bytes());
     // Date.
-    assert!(MONTHS.contains(&&buf[8..11]));
-    assert_eq!(buf[11], b' ');
-    assert!(DIGITS.contains(&buf[12]));
-    assert!(DIGITS.contains(&buf[13]));
-    assert_eq!(buf[14], b' ');
-    assert!(DIGITS.contains(&buf[15]));
-    assert!(DIGITS.contains(&buf[16]));
-    assert!(DIGITS.contains(&buf[17]));
-    assert!(DIGITS.contains(&buf[18]));
-    assert_eq!(&buf[19..22], &[0, 0, 0]);
+    assert_eq!(&buf[8..20], b"Jan. 1, 1970");
+    assert_eq!(&buf[20..22], &[0, 0]);
     // Version.
     assert_eq!(&buf[22..42], b"1.2.3-alpha1\0\0\0\0\0\0\0\0");
     // Binary size.
@@ -236,16 +227,8 @@ fn trusted_signing() {
     // Timestamp.
     assert_eq!(buf[4..8], header.timestamp().to_le_bytes());
     // Date.
-    assert!(MONTHS.contains(&&buf[8..11]));
-    assert_eq!(buf[11], b' ');
-    assert!(DIGITS.contains(&buf[12]));
-    assert!(DIGITS.contains(&buf[13]));
-    assert_eq!(buf[14], b' ');
-    assert!(DIGITS.contains(&buf[15]));
-    assert!(DIGITS.contains(&buf[16]));
-    assert!(DIGITS.contains(&buf[17]));
-    assert!(DIGITS.contains(&buf[18]));
-    assert_eq!(&buf[19..22], &[0, 0, 0]);
+    assert_eq!(&buf[8..20], b"Jan. 1, 1970");
+    assert_eq!(&buf[20..22], &[0, 0]);
     // Version.
     assert_eq!(&buf[22..42], b"1.2.3-alpha1\0\0\0\0\0\0\0\0");
     // Binary size.
@@ -260,4 +243,75 @@ fn trusted_signing() {
     assert_ne!(buf[176..240], [0; 64]);
     // Reserved.
     assert!(&buf[240..HEADER_SIZE].iter().all(|&b| b == 0));
+}
+
+#[test]
+fn date_format_examples() {
+    const HEADER_SIZE: usize = 1024;
+    let binary = [0u8; 1];
+
+    let header = Header::sign_new(
+        Magic::Atsama5d27KeyOs,
+        "1.2.3",
+        timestamp_for_date(2026, 1, 13),
+        Signer::Trusted,
+        &binary[..],
+        &Sha256,
+        &Secp256k1Sign(KNOWN_PUBKEY1),
+        HEADER_SIZE,
+    )
+    .unwrap();
+    assert_eq!(header.date(), "Jan. 13, 2026");
+
+    let header = Header::sign_new(
+        Magic::Atsama5d27KeyOs,
+        "1.2.3",
+        timestamp_for_date(2028, 8, 7),
+        Signer::Trusted,
+        &binary[..],
+        &Sha256,
+        &Secp256k1Sign(KNOWN_PUBKEY1),
+        HEADER_SIZE,
+    )
+    .unwrap();
+    assert_eq!(header.date(), "Aug. 7, 2028");
+
+    let header = Header::sign_new(
+        Magic::Atsama5d27KeyOs,
+        "1.2.3",
+        timestamp_for_date(2025, 5, 12),
+        Signer::Trusted,
+        &binary[..],
+        &Sha256,
+        &Secp256k1Sign(KNOWN_PUBKEY1),
+        HEADER_SIZE,
+    )
+    .unwrap();
+    assert_eq!(header.date(), "May 12, 2025");
+
+    let header = Header::sign_new(
+        Magic::Atsama5d27KeyOs,
+        "1.2.3",
+        timestamp_for_date(2027, 6, 9),
+        Signer::Trusted,
+        &binary[..],
+        &Sha256,
+        &Secp256k1Sign(KNOWN_PUBKEY1),
+        HEADER_SIZE,
+    )
+    .unwrap();
+    assert_eq!(header.date(), "June 9, 2027");
+
+    let header = Header::sign_new(
+        Magic::Atsama5d27KeyOs,
+        "1.2.3",
+        timestamp_for_date(2024, 7, 21),
+        Signer::Trusted,
+        &binary[..],
+        &Sha256,
+        &Secp256k1Sign(KNOWN_PUBKEY1),
+        HEADER_SIZE,
+    )
+    .unwrap();
+    assert_eq!(header.date(), "July 21, 2024");
 }

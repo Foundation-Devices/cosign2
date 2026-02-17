@@ -576,14 +576,15 @@ impl Header {
     /// Set the binary date field.
     fn set_date(&mut self, timestamp: u32) {
         let date = chrono::DateTime::from_timestamp(timestamp.into(), 0).expect("before 2106");
-        let month = match date.month() {
+        let month_num = date.month();
+        let month: &[u8] = match month_num {
             1 => b"Jan",
             2 => b"Feb",
             3 => b"Mar",
             4 => b"Apr",
             5 => b"May",
-            6 => b"Jun",
-            7 => b"Jul",
+            6 => b"June",
+            7 => b"July",
             8 => b"Aug",
             9 => b"Sep",
             10 => b"Oct",
@@ -591,17 +592,33 @@ impl Header {
             12 => b"Dec",
             _ => unreachable!(),
         };
-        self.date[0..3].copy_from_slice(month);
-        self.date[3] = b' ';
+        self.date.fill(0);
+
+        let mut offset = 0;
+        push_slice(&mut self.date, &mut offset, month);
+
+        // Keep month abbreviations punctuated except months that fit naturally in 3-4 chars
+        // without punctuation (May/June/July).
+        if !(5..=7).contains(&month_num) {
+            push_byte(&mut self.date, &mut offset, b'.');
+        }
+
+        push_byte(&mut self.date, &mut offset, b' ');
+
         let day = date.day();
-        self.date[4] = ascii_digit(day / 10);
-        self.date[5] = ascii_digit(day % 10);
-        self.date[6] = b' ';
+        if day >= 10 {
+            push_byte(&mut self.date, &mut offset, ascii_digit(day / 10));
+        }
+        push_byte(&mut self.date, &mut offset, ascii_digit(day % 10));
+
+        push_byte(&mut self.date, &mut offset, b',');
+        push_byte(&mut self.date, &mut offset, b' ');
+
         let year: u32 = date.year().try_into().expect("year in timestamp is valid");
-        self.date[7] = ascii_digit((year / 1000) % 10);
-        self.date[8] = ascii_digit((year / 100) % 10);
-        self.date[9] = ascii_digit((year / 10) % 10);
-        self.date[10] = ascii_digit(year % 10);
+        push_byte(&mut self.date, &mut offset, ascii_digit((year / 1000) % 10));
+        push_byte(&mut self.date, &mut offset, ascii_digit((year / 100) % 10));
+        push_byte(&mut self.date, &mut offset, ascii_digit((year / 10) % 10));
+        push_byte(&mut self.date, &mut offset, ascii_digit(year % 10));
     }
 
     /// Set the binary version field.
@@ -668,6 +685,16 @@ fn ascii_digit(b: u32) -> u8 {
         9 => b'9',
         _ => unreachable!(),
     }
+}
+
+fn push_byte<const N: usize>(buf: &mut [u8; N], offset: &mut usize, b: u8) {
+    buf[*offset] = b;
+    *offset += 1;
+}
+
+fn push_slice<const N: usize>(buf: &mut [u8; N], offset: &mut usize, s: &[u8]) {
+    buf[*offset..*offset + s.len()].copy_from_slice(s);
+    *offset += s.len();
 }
 
 #[derive(Debug)]
