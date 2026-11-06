@@ -230,6 +230,9 @@ impl Header {
         if header_size > Self::MAX_SIZE {
             return Err(Error::HeaderTooLong);
         }
+        if header_size < Self::MIN_SIZE {
+            return Err(Error::HeaderTooShort);
+        }
 
         let mut header = Self {
             magic: magic.to_bytes(),

@@ -435,4 +435,16 @@ fn parse_unsigned_rejects_malformed_headers() {
         Header::parse_unsigned(&buf, [0; 32], &RealSha256),
         Err(Error::InvalidReservedBytes)
     ));
+
+    assert!(matches!(
+        Header::new_unsigned(
+            Magic::Atsama5d27KeyOs,
+            "1.2.3",
+            0,
+            &binary[..],
+            &RealSha256,
+            Header::MIN_SIZE - 1
+        ),
+        Err(Error::HeaderTooShort)
+    ));
 }
