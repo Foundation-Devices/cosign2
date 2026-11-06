@@ -62,10 +62,7 @@ where
                 header_size,
             )? {
                 Some(header) => {
-                    let magic = match header.magic() {
-                        cosign2::Magic::Atsama5d27KeyOs => "atsama5d27-keyos",
-                        cosign2::Magic::Nrf52Ble => "nrf52-ble",
-                    };
+                    let magic = header.magic().target();
                     let timestamp = chrono::DateTime::from_timestamp(header.timestamp().into(), 0)
                         .expect("valid timestamp");
                     writeln!(&mut stdout, "{:10} {magic}", "magic".bold())
@@ -145,7 +142,7 @@ where
             input: input_path,
             output,
             version,
-            target,
+            target: magic,
             known_pubkeys,
             developer,
             header_size,
@@ -163,10 +160,6 @@ where
 
             let known_pubkeys: Vec<_> = known_pubkeys.into_iter().map(|k| k.serialize()).collect();
 
-            let magic = target.map(|t| match t {
-                args::Target::Atsama5d27KeyOs => cosign2::Magic::Atsama5d27KeyOs,
-                args::Target::Nrf52Ble => cosign2::Magic::Nrf52Ble,
-            });
             let mut input_options = std::fs::OpenOptions::new();
             input_options.read(true);
             if let args::Output::InPlace = output {

@@ -733,6 +733,23 @@ impl Magic {
             Self::Nrf52Ble => [0x62, 0x6c, 0x65, 0x66],
         }
     }
+
+    /// Parse a target name, as written in `cosign2.toml`.
+    pub fn from_target(target: &str) -> Option<Self> {
+        match target {
+            "atsama5d27-keyos" => Some(Self::Atsama5d27KeyOs),
+            "nrf52-ble" => Some(Self::Nrf52Ble),
+            _ => None,
+        }
+    }
+
+    /// The target name, as written in `cosign2.toml`.
+    pub fn target(&self) -> &'static str {
+        match self {
+            Self::Atsama5d27KeyOs => "atsama5d27-keyos",
+            Self::Nrf52Ble => "nrf52-ble",
+        }
+    }
 }
 
 fn ascii_digit(b: u32) -> u8 {
