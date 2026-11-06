@@ -394,7 +394,7 @@ fn unsigned_header_collects_two_signatures() {
 }
 
 #[test]
-fn parse_unsigned_rejects_signed_and_truncated_headers() {
+fn parse_unsigned_rejects_malformed_headers() {
     let binary = [0x01, 0x02, 0x03, 0x04];
     const HEADER_SIZE: usize = 1024;
     let header = Header::sign_new(
@@ -418,5 +418,21 @@ fn parse_unsigned_rejects_signed_and_truncated_headers() {
     assert!(matches!(
         Header::parse_unsigned(&buf[..Header::MIN_SIZE - 1], [0; 32], &RealSha256),
         Err(Error::HeaderTooShort)
+    ));
+
+    let unsigned = Header::new_unsigned(
+        Magic::Atsama5d27KeyOs,
+        "1.2.3",
+        0,
+        &binary[..],
+        &RealSha256,
+        HEADER_SIZE,
+    )
+    .unwrap();
+    unsigned.serialize(&mut buf).unwrap();
+    buf[HEADER_SIZE - 1] = 1;
+    assert!(matches!(
+        Header::parse_unsigned(&buf, [0; 32], &RealSha256),
+        Err(Error::InvalidReservedBytes)
     ));
 }

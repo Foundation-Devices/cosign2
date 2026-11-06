@@ -347,9 +347,15 @@ impl Header {
             return Err(Error::HeaderAlreadySigned);
         }
         parsed.validate_fields(&[], false)?;
+        // `serialize` writes the padding as zeros, so other padding gives a digest the signed header
+        // can't reproduce.
+        let reserved = &header[parsed.payload_size()..];
+        if reserved.iter().any(|&byte| byte != 0) {
+            return Err(Error::InvalidReservedBytes);
+        }
 
         let header_hash = parsed.compute_header_fields_hash(sha);
-        let reserved_hash = sha.hash(&header[parsed.payload_size()..]);
+        let reserved_hash = sha.hash(reserved);
         parsed.finalize_hash(header_hash, reserved_hash, bin_hash, sha);
         Ok(Some(parsed))
     }
