@@ -11,3 +11,6 @@ semver = { version = "1.0", default-features = false, optional = true }
 semver = ["dep:semver"]
 std = []
 default = []
+
+[dev-dependencies]
+sha2 = "0.10"
