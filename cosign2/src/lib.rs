@@ -175,6 +175,7 @@ impl Header {
     }
 
     /// Create a new header and sign it.
+    #[allow(clippy::too_many_arguments)]
     pub fn sign_new(
         magic: Magic,
         version: &str,
@@ -306,6 +307,7 @@ impl Header {
     /// This is a memory-efficient version of [`parse`](Header::parse) that uses
     /// streaming SHA-256 to hash the binary data without loading it entirely into memory
     #[cfg(feature = "std")]
+    #[allow(clippy::too_many_arguments)]
     pub fn parse_streaming<E, R>(
         header_data: &[u8],
         binary_size: usize,
@@ -419,7 +421,7 @@ impl Header {
     /// No assumption is done during this check because the header could have been maliciously manually
     /// modified.
     fn update_trust(&mut self, known_signers: &[[u8; 33]]) -> Result<(), Error> {
-        self.trust = if known_signers.len() == 0 {
+        self.trust = if known_signers.is_empty() {
             Trust::Disabled
         } else {
             match (self.pubkey1, self.pubkey2) {
