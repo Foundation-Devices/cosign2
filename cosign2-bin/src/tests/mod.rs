@@ -10,7 +10,13 @@ mod input;
 #[test]
 fn dump_no_header() {
     let file = create_file(b"Hello, world!");
-    let output = test(["dump", "-i", file.path().to_str().unwrap(), "--header-size", "1024"]);
+    let output = test([
+        "dump",
+        "-i",
+        file.path().to_str().unwrap(),
+        "--header-size",
+        "1024",
+    ]);
     assert_eq!(output.exit_code, ExitCode(0));
     assert!(output.stdout.contains("no header"));
     assert!(output.stderr.is_empty());
@@ -33,7 +39,13 @@ fn dump_valid_header_one_signature() {
     .input()
     .create_file();
     let (sig1_half_1, sig1_half_2) = sig1.split_at(sig1.len() / 2);
-    let output = test(["dump", "-i", file.path().to_str().unwrap(), "--header-size", "1024"]);
+    let output = test([
+        "dump",
+        "-i",
+        file.path().to_str().unwrap(),
+        "--header-size",
+        "1024",
+    ]);
     assert_eq!(output.exit_code, ExitCode(0));
 
     // Prints magic value.
@@ -54,9 +66,13 @@ fn dump_valid_header_one_signature() {
     assert!(output.stdout.contains(sig1_half_1));
     assert!(output.stdout.contains(sig1_half_2));
     // Prints second pubkey in hex (all zeros).
-    assert!(output.stdout.contains("000000000000000000000000000000000000000000000000000000000000000000"));
+    assert!(output
+        .stdout
+        .contains("000000000000000000000000000000000000000000000000000000000000000000"));
     // Prints second signature in hex (all zeros).
-    assert!(output.stdout.contains("0000000000000000000000000000000000000000000000000000000000000000"));
+    assert!(output
+        .stdout
+        .contains("0000000000000000000000000000000000000000000000000000000000000000"));
 
     assert!(output.stderr.is_empty());
 }
@@ -80,7 +96,13 @@ fn dump_valid_header_two_signatures() {
     .create_file();
     let (sig1_half_1, sig1_half_2) = sig1.split_at(sig1.len() / 2);
     let (sig2_half_1, sig2_half_2) = sig2.split_at(sig2.len() / 2);
-    let output = test(["dump", "-i", file.path().to_str().unwrap(), "--header-size", "1024"]);
+    let output = test([
+        "dump",
+        "-i",
+        file.path().to_str().unwrap(),
+        "--header-size",
+        "1024",
+    ]);
     assert_eq!(output.exit_code, ExitCode(0));
 
     // Prints magic value.
@@ -126,7 +148,13 @@ fn dump_invalid_magic() {
     }
     .input()
     .create_file();
-    let output = test(["dump", "-i", file.path().to_str().unwrap(), "--header-size", "1024"]);
+    let output = test([
+        "dump",
+        "-i",
+        file.path().to_str().unwrap(),
+        "--header-size",
+        "1024",
+    ]);
     assert_eq!(output.exit_code, ExitCode(0));
     assert!(output.stdout.contains("no header"));
     assert!(output.stderr.is_empty());
@@ -172,7 +200,13 @@ fn dump_invalid_changed_fields() {
         .input()
         .update(case)
         .create_file();
-        let output = test(["dump", "-i", file.path().to_str().unwrap(), "--header-size", "1024"]);
+        let output = test([
+            "dump",
+            "-i",
+            file.path().to_str().unwrap(),
+            "--header-size",
+            "1024",
+        ]);
         assert_eq!(output.exit_code, ExitCode(1));
         assert!(output.stdout.is_empty());
         assert!(output.stderr.contains("invalid signature1"));
@@ -198,7 +232,13 @@ fn dump_invalid_header_invalid_pubkey1() {
         input.pubkey1[5] = 0xFF;
     })
     .create_file();
-    let output = test(["dump", "-i", file.path().to_str().unwrap(), "--header-size", "1024"]);
+    let output = test([
+        "dump",
+        "-i",
+        file.path().to_str().unwrap(),
+        "--header-size",
+        "1024",
+    ]);
     assert_eq!(output.exit_code, ExitCode(1));
     assert!(output.stdout.is_empty());
     assert!(output.stderr.contains("invalid signature1"));
@@ -223,7 +263,13 @@ fn dump_invalid_header_invalid_pubkey2() {
         input.pubkey2[5] = 0xFF;
     })
     .create_file();
-    let output = test(["dump", "-i", file.path().to_str().unwrap(), "--header-size", "1024"]);
+    let output = test([
+        "dump",
+        "-i",
+        file.path().to_str().unwrap(),
+        "--header-size",
+        "1024",
+    ]);
     assert_eq!(output.exit_code, ExitCode(1));
     assert!(output.stdout.is_empty());
     assert!(output.stderr.contains("invalid signature2"));
@@ -248,7 +294,13 @@ fn dump_invalid_header_invalid_signature1() {
         input.signature1[5] = 0xDB;
     })
     .create_file();
-    let output = test(["dump", "-i", file.path().to_str().unwrap(), "--header-size", "1024"]);
+    let output = test([
+        "dump",
+        "-i",
+        file.path().to_str().unwrap(),
+        "--header-size",
+        "1024",
+    ]);
     assert_eq!(output.exit_code, ExitCode(1));
     assert!(output.stdout.is_empty());
     assert!(output.stderr.contains("invalid signature1"));
@@ -273,7 +325,13 @@ fn dump_invalid_header_invalid_signature2() {
         input.signature2[5] = 0xDB;
     })
     .create_file();
-    let output = test(["dump", "-i", file.path().to_str().unwrap(), "--header-size", "1024"]);
+    let output = test([
+        "dump",
+        "-i",
+        file.path().to_str().unwrap(),
+        "--header-size",
+        "1024",
+    ]);
     assert_eq!(output.exit_code, ExitCode(1));
     assert!(output.stdout.is_empty());
     assert!(output.stderr.contains("invalid signature2"));
@@ -306,14 +364,22 @@ fn sign_with_trusted_keys() {
     assert!(output.stdout.is_empty());
     assert!(output.stderr.is_empty());
 
-    let output = test(["dump", "-i", output_file.path().to_str().unwrap(), "--header-size", "1024"]);
+    let output = test([
+        "dump",
+        "-i",
+        output_file.path().to_str().unwrap(),
+        "--header-size",
+        "1024",
+    ]);
 
     assert_eq!(output.exit_code, ExitCode(0));
     assert!(output.stdout.contains("atsama5d27-keyos"));
     assert!(output.stdout.contains("1.2.4-alpha1"));
     assert!(output.stdout.contains("13 B (13)"));
     assert!(output.stdout.contains(input::PUBKEY_1_HEX));
-    assert!(output.stdout.contains("000000000000000000000000000000000000000000000000000000000000000000"));
+    assert!(output
+        .stdout
+        .contains("000000000000000000000000000000000000000000000000000000000000000000"));
     assert!(output.stderr.is_empty());
 
     // Sign the image with the second key.
@@ -337,7 +403,13 @@ fn sign_with_trusted_keys() {
     assert!(output.stdout.is_empty());
     assert!(output.stderr.is_empty());
 
-    let output = test(["dump", "-i", final_output_file.path().to_str().unwrap(), "--header-size", "1024"]);
+    let output = test([
+        "dump",
+        "-i",
+        final_output_file.path().to_str().unwrap(),
+        "--header-size",
+        "1024",
+    ]);
 
     assert_eq!(output.exit_code, ExitCode(0));
     assert!(output.stdout.contains("atsama5d27-keyos"));
@@ -345,8 +417,12 @@ fn sign_with_trusted_keys() {
     assert!(output.stdout.contains("13 B (13)"));
     assert!(output.stdout.contains(input::PUBKEY_1_HEX));
     assert!(output.stdout.contains(input::PUBKEY_2_HEX));
-    assert!(!output.stdout.contains("000000000000000000000000000000000000000000000000000000000000000000"));
-    assert!(!output.stdout.contains("0000000000000000000000000000000000000000000000000000000000000000"));
+    assert!(!output
+        .stdout
+        .contains("000000000000000000000000000000000000000000000000000000000000000000"));
+    assert!(!output
+        .stdout
+        .contains("0000000000000000000000000000000000000000000000000000000000000000"));
     assert!(output.stderr.is_empty());
 }
 
@@ -400,7 +476,13 @@ fn sign_with_trusted_key_from_config() {
     assert!(output.stdout.is_empty());
     assert!(output.stderr.is_empty());
 
-    let output = test(["dump", "-i", output_file.path().to_str().unwrap(), "--header-size", "1024"]);
+    let output = test([
+        "dump",
+        "-i",
+        output_file.path().to_str().unwrap(),
+        "--header-size",
+        "1024",
+    ]);
 
     assert_eq!(output.exit_code, ExitCode(0));
     assert!(output.stdout.contains("atsama5d27-keyos"));
@@ -408,8 +490,12 @@ fn sign_with_trusted_key_from_config() {
     assert!(output.stdout.contains("13 B (13)"));
     assert!(output.stdout.contains(input::PUBKEY_1_HEX));
     assert!(output.stdout.contains(input::PUBKEY_2_HEX));
-    assert!(!output.stdout.contains("000000000000000000000000000000000000000000000000000000000000000000"));
-    assert!(!output.stdout.contains("0000000000000000000000000000000000000000000000000000000000000000"));
+    assert!(!output
+        .stdout
+        .contains("000000000000000000000000000000000000000000000000000000000000000000"));
+    assert!(!output
+        .stdout
+        .contains("0000000000000000000000000000000000000000000000000000000000000000"));
     assert!(output.stderr.is_empty());
 }
 
@@ -461,7 +547,9 @@ fn pubkey_in_config_and_cli() {
 
     assert_eq!(output.exit_code, ExitCode(1));
     assert!(output.stdout.is_empty());
-    assert!(output.stderr.contains("pubkey specified in both config and cli"));
+    assert!(output
+        .stderr
+        .contains("pubkey specified in both config and cli"));
     let mut buf = Vec::new();
     output_file.as_file().read_to_end(&mut buf).unwrap();
     assert!(buf.is_empty());
@@ -515,7 +603,9 @@ fn secret_in_config_and_cli() {
 
     assert_eq!(output.exit_code, ExitCode(1));
     assert!(output.stdout.is_empty());
-    assert!(output.stderr.contains("secret specified in both config and cli"));
+    assert!(output
+        .stderr
+        .contains("secret specified in both config and cli"));
     let mut buf = Vec::new();
     output_file.as_file().read_to_end(&mut buf).unwrap();
     assert!(buf.is_empty());
@@ -572,7 +662,9 @@ fn known_pubkeys_in_config_and_cli() {
 
     assert_eq!(output.exit_code, ExitCode(1));
     assert!(output.stdout.is_empty());
-    assert!(output.stderr.contains("known pubkeys specified in both config and cli"));
+    assert!(output
+        .stderr
+        .contains("known pubkeys specified in both config and cli"));
     let mut buf = Vec::new();
     output_file.as_file().read_to_end(&mut buf).unwrap();
     assert!(buf.is_empty());
@@ -625,7 +717,9 @@ fn target_in_config_and_cli() {
 
     assert_eq!(output.exit_code, ExitCode(1));
     assert!(output.stdout.is_empty());
-    assert!(output.stderr.contains("target specified in both config and cli"));
+    assert!(output
+        .stderr
+        .contains("target specified in both config and cli"));
     let mut buf = Vec::new();
     output_file.as_file().read_to_end(&mut buf).unwrap();
     assert!(buf.is_empty());
@@ -658,14 +752,22 @@ fn sign_with_developer_key() {
     assert!(output.stdout.is_empty());
     assert!(output.stderr.is_empty());
 
-    let output = test(["dump", "-i", output_file.path().to_str().unwrap(), "--header-size", "1024"]);
+    let output = test([
+        "dump",
+        "-i",
+        output_file.path().to_str().unwrap(),
+        "--header-size",
+        "1024",
+    ]);
 
     assert_eq!(output.exit_code, ExitCode(0));
     assert!(output.stdout.contains("atsama5d27-keyos"));
     assert!(output.stdout.contains("1.2.4-alpha1"));
     assert!(output.stdout.contains("13 B (13)"));
     assert!(output.stdout.contains(input::PUBKEY_1_HEX));
-    assert!(output.stdout.contains("000000000000000000000000000000000000000000000000000000000000000000"));
+    assert!(output
+        .stdout
+        .contains("000000000000000000000000000000000000000000000000000000000000000000"));
     assert!(output.stderr.is_empty());
 }
 
@@ -694,14 +796,22 @@ fn sign_with_developer_key_in_place() {
     assert!(output.stdout.is_empty());
     assert!(output.stderr.is_empty());
 
-    let output = test(["dump", "-i", input_file.path().to_str().unwrap(), "--header-size", "1024"]);
+    let output = test([
+        "dump",
+        "-i",
+        input_file.path().to_str().unwrap(),
+        "--header-size",
+        "1024",
+    ]);
 
     assert_eq!(output.exit_code, ExitCode(0));
     assert!(output.stdout.contains("atsama5d27-keyos"));
     assert!(output.stdout.contains("1.2.4-alpha1"));
     assert!(output.stdout.contains("13 B (13)"));
     assert!(output.stdout.contains(input::PUBKEY_1_HEX));
-    assert!(output.stdout.contains("000000000000000000000000000000000000000000000000000000000000000000"));
+    assert!(output
+        .stdout
+        .contains("000000000000000000000000000000000000000000000000000000000000000000"));
     assert!(output.stderr.is_empty());
 }
 
@@ -731,7 +841,9 @@ fn sign_with_developer_key_in_place_with_output_file() {
 
     assert_eq!(output.exit_code, ExitCode(1));
     assert!(output.stdout.is_empty());
-    assert!(output.stderr.contains("cannot specify both --in-place and --output (-o)"));
+    assert!(output
+        .stderr
+        .contains("cannot specify both --in-place and --output (-o)"));
     let mut buf = Vec::new();
     output_file.as_file().read_to_end(&mut buf).unwrap();
     assert!(buf.is_empty());
@@ -805,7 +917,9 @@ fn sign_pubkey_mismatch() {
 
     assert_eq!(output.exit_code, ExitCode(1));
     assert!(output.stdout.is_empty());
-    assert!(output.stderr.contains("public key does not match secret key"));
+    assert!(output
+        .stderr
+        .contains("public key does not match secret key"));
     let mut buf = Vec::new();
     output_file.as_file().read_to_end(&mut buf).unwrap();
     assert!(buf.is_empty());
@@ -930,7 +1044,9 @@ fn sign_header_with_unknown_pubkey() {
 
     assert_eq!(output.exit_code, ExitCode(1));
     assert!(output.stdout.is_empty());
-    assert!(output.stderr.contains("signing key is not in known pubkeys list"));
+    assert!(output
+        .stderr
+        .contains("signing key is not in known pubkeys list"));
     let mut buf = Vec::new();
     output_file.as_file().read_to_end(&mut buf).unwrap();
     assert!(buf.is_empty());
@@ -1131,7 +1247,11 @@ fn sign_header_invalid_binary_size() {
 fn test<const N: usize>(args: [&str; N]) -> Output {
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();
-    let exit_code = crate::main_args(std::iter::once("cosign2").chain(args), &mut stdout, &mut stderr);
+    let exit_code = crate::main_args(
+        std::iter::once("cosign2").chain(args),
+        &mut stdout,
+        &mut stderr,
+    );
     println!("* args: {:?}", args);
     println!("* exit_code: {:?}", exit_code);
     println!("* stdout:\n{}", String::from_utf8_lossy(&stdout));

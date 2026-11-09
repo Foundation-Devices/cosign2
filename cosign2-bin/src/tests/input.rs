@@ -17,24 +17,24 @@ cL6iEfU7G/wu1pITiXhOX88QGg37qA==
 -----END EC PRIVATE KEY-----";
 
 pub const PUBKEY_1_BYTES: [u8; 33] = [
-    2, 113, 163, 230, 6, 87, 130, 129, 246, 188, 180, 97, 168, 173, 166, 113, 130, 156, 51, 72, 182, 136,
-    120, 124, 104, 186, 167, 90, 213, 25, 22, 237, 252,
+    2, 113, 163, 230, 6, 87, 130, 129, 246, 188, 180, 97, 168, 173, 166, 113, 130, 156, 51, 72,
+    182, 136, 120, 124, 104, 186, 167, 90, 213, 25, 22, 237, 252,
 ];
 pub const PUBKEY_2_BYTES: [u8; 33] = [
-    2, 17, 143, 89, 8, 43, 142, 38, 117, 60, 28, 171, 27, 254, 173, 50, 89, 52, 76, 3, 49, 44, 187, 79, 247,
-    189, 236, 206, 185, 21, 233, 44, 155,
+    2, 17, 143, 89, 8, 43, 142, 38, 117, 60, 28, 171, 27, 254, 173, 50, 89, 52, 76, 3, 49, 44, 187,
+    79, 247, 189, 236, 206, 185, 21, 233, 44, 155,
 ];
 
 pub const PUBKEY_1_HEX: &str = "0271a3e606578281f6bcb461a8ada671829c3348b688787c68baa75ad51916edfc";
 pub const PUBKEY_2_HEX: &str = "02118f59082b8e26753c1cab1bfead3259344c03312cbb4ff7bdecceb915e92c9b";
 
 pub const SECRET_1_BYTES: &[u8] = &[
-    179, 247, 133, 163, 184, 180, 209, 161, 233, 126, 194, 120, 45, 26, 250, 143, 64, 119, 101, 149, 172,
-    118, 133, 137, 226, 24, 197, 114, 168, 129, 207, 187,
+    179, 247, 133, 163, 184, 180, 209, 161, 233, 126, 194, 120, 45, 26, 250, 143, 64, 119, 101,
+    149, 172, 118, 133, 137, 226, 24, 197, 114, 168, 129, 207, 187,
 ];
 pub const SECRET_2_BYTES: &[u8] = &[
-    165, 173, 224, 118, 144, 45, 243, 15, 146, 156, 153, 56, 237, 13, 159, 208, 66, 208, 36, 143, 167, 240,
-    247, 115, 34, 1, 44, 218, 27, 221, 123, 244,
+    165, 173, 224, 118, 144, 45, 243, 15, 146, 156, 153, 56, 237, 13, 159, 208, 66, 208, 36, 143,
+    167, 240, 247, 115, 34, 1, 44, 218, 27, 221, 123, 244,
 ];
 
 #[derive(Debug, Clone)]
@@ -71,14 +71,26 @@ impl Params {
         self.version.resize(20, 0);
         self.reserved.resize(1024 - 240, 0);
         let mut input = Input {
-            magic: if self.magic { [0x50, 0x52, 0x4D, 0x31] } else { [0x12, 0x34, 0x56, 0x78] },
+            magic: if self.magic {
+                [0x50, 0x52, 0x4D, 0x31]
+            } else {
+                [0x12, 0x34, 0x56, 0x78]
+            },
             timestamp: self.timestamp.to_le_bytes(),
             date: self.date.as_slice().try_into().unwrap(),
             version: self.version.as_slice().try_into().unwrap(),
             bin_size: self.bin_size.to_le_bytes(),
-            pubkey1: if self.signature1 { PUBKEY_1_BYTES } else { [0; 33] },
+            pubkey1: if self.signature1 {
+                PUBKEY_1_BYTES
+            } else {
+                [0; 33]
+            },
             signature1: [0; 64],
-            pubkey2: if self.signature2 { PUBKEY_2_BYTES } else { [0; 33] },
+            pubkey2: if self.signature2 {
+                PUBKEY_2_BYTES
+            } else {
+                [0; 33]
+            },
             signature2: [0; 64],
             reserved: self.reserved.as_slice().try_into().unwrap(),
             binary: self.binary,
@@ -110,7 +122,11 @@ impl Input {
         file.write_all(&self.signature2).unwrap();
         file.write_all(&self.reserved).unwrap();
         file.write_all(&self.binary).unwrap();
-        (file, hex::encode(self.signature1), hex::encode(self.signature2))
+        (
+            file,
+            hex::encode(self.signature1),
+            hex::encode(self.signature2),
+        )
     }
 
     fn sign(&mut self) {
@@ -142,12 +158,14 @@ impl Input {
         let secp = secp256k1::Secp256k1::new();
         if self.pubkey1 != [0; 33] {
             let secret_key = secp256k1::SecretKey::from_slice(SECRET_1_BYTES).unwrap();
-            let signature = secp.sign_ecdsa(&secp256k1::Message::from_digest(hash.into()), &secret_key);
+            let signature =
+                secp.sign_ecdsa(&secp256k1::Message::from_digest(hash.into()), &secret_key);
             self.signature1 = signature.serialize_compact();
         }
         if self.pubkey2 != [0; 33] {
             let secret_key = secp256k1::SecretKey::from_slice(SECRET_2_BYTES).unwrap();
-            let signature = secp.sign_ecdsa(&secp256k1::Message::from_digest(hash.into()), &secret_key);
+            let signature =
+                secp.sign_ecdsa(&secp256k1::Message::from_digest(hash.into()), &secret_key);
             self.signature2 = signature.serialize_compact();
         }
     }

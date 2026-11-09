@@ -58,7 +58,11 @@ pub trait Sha256Streaming {
 
     /// `total_len`: total length of data to hash
     /// `reader`: reader that provides the data to hash (e.g., file)
-    fn hash_streaming<R: std::io::Read>(&self, total_len: usize, reader: R) -> Result<[u8; 32], Self::Error>;
+    fn hash_streaming<R: std::io::Read>(
+        &self,
+        total_len: usize,
+        reader: R,
+    ) -> Result<[u8; 32], Self::Error>;
 }
 
 /// ECDSA secp256k1 signing.
@@ -73,7 +77,12 @@ pub trait Secp256k1Sign {
 /// ECDSA secp256k1 verification.
 pub trait Secp256k1Verify {
     /// Verify an ECDSA signature against the given public key.
-    fn verify_ecdsa(&self, msg: [u8; 32], signature: [u8; 64], pubkey: [u8; 33]) -> VerificationResult;
+    fn verify_ecdsa(
+        &self,
+        msg: [u8; 32],
+        signature: [u8; 64],
+        pubkey: [u8; 33],
+    ) -> VerificationResult;
 }
 
 /// Verification result.
@@ -95,49 +104,75 @@ impl Header {
     pub const MIN_SIZE: usize = 256;
 
     /// Magic number.
-    pub fn magic(&self) -> Magic { Magic::from_bytes(self.magic).expect("validated") }
+    pub fn magic(&self) -> Magic {
+        Magic::from_bytes(self.magic).expect("validated")
+    }
 
     /// Binary timestamp in seconds since the Unix epoch.
-    pub fn timestamp(&self) -> u32 { u32::from_le_bytes(self.timestamp) }
+    pub fn timestamp(&self) -> u32 {
+        u32::from_le_bytes(self.timestamp)
+    }
 
     /// Human-readable binary date.
     ///
     /// Used for displaying the binary date during device boot, where advanced
     /// date manipulation functions are not available.
     pub fn date(&self) -> &str {
-        let first_zero = self.date.iter().position(|&b| b == 0).unwrap_or(self.date.len());
+        let first_zero = self
+            .date
+            .iter()
+            .position(|&b| b == 0)
+            .unwrap_or(self.date.len());
         core::str::from_utf8(&self.date[..first_zero]).expect("validated")
     }
 
     /// Binary version.
     pub fn version(&self) -> &str {
-        let first_zero = self.version.iter().position(|&b| b == 0).unwrap_or(self.version.len());
+        let first_zero = self
+            .version
+            .iter()
+            .position(|&b| b == 0)
+            .unwrap_or(self.version.len());
         core::str::from_utf8(&self.version[..first_zero]).expect("validated")
     }
 
     /// The size of the binary.
-    pub fn bin_size(&self) -> u32 { u32::from_le_bytes(self.bin_size) }
+    pub fn bin_size(&self) -> u32 {
+        u32::from_le_bytes(self.bin_size)
+    }
 
     /// Public key of the first signer.
-    pub fn pubkey1(&self) -> [u8; 33] { self.pubkey1 }
+    pub fn pubkey1(&self) -> [u8; 33] {
+        self.pubkey1
+    }
 
     /// First signature.
-    pub fn signature1(&self) -> [u8; 64] { self.signature1 }
+    pub fn signature1(&self) -> [u8; 64] {
+        self.signature1
+    }
 
     /// Public key of the second signer.
-    pub fn pubkey2(&self) -> [u8; 33] { self.pubkey2 }
+    pub fn pubkey2(&self) -> [u8; 33] {
+        self.pubkey2
+    }
 
     /// Second signature.
-    pub fn signature2(&self) -> [u8; 64] { self.signature2 }
+    pub fn signature2(&self) -> [u8; 64] {
+        self.signature2
+    }
 
     /// Hash of the binary that this header is for.
     ///
     /// All zeros if the header was created using
     /// [`parse_unverified`](Header::parse_unverified).
-    pub fn binary_hash(&self) -> &[u8; 32] { &self.bin_hash }
+    pub fn binary_hash(&self) -> &[u8; 32] {
+        &self.bin_hash
+    }
 
     /// State of trust according to included signatures.
-    pub fn trust(&self) -> Trust { self.trust }
+    pub fn trust(&self) -> Trust {
+        self.trust
+    }
 
     /// Create a new header and sign it.
     pub fn sign_new(
@@ -163,7 +198,9 @@ impl Header {
             timestamp: timestamp.to_le_bytes(),
             date: [0; 14],
             version: [0; 20],
-            bin_size: u32::try_from(binary.len()).map_err(|_| Error::BinaryTooLong)?.to_le_bytes(),
+            bin_size: u32::try_from(binary.len())
+                .map_err(|_| Error::BinaryTooLong)?
+                .to_le_bytes(),
             pubkey1: [0; 33],
             signature1: [0; 64],
             pubkey2: [0; 33],
@@ -176,7 +213,11 @@ impl Header {
         header.set_date(timestamp);
         header.set_version(version)?;
         let reserved = [0; Self::MAX_SIZE];
-        header.hash(&reserved[..header_size - header.payload_size()], binary, sha);
+        header.hash(
+            &reserved[..header_size - header.payload_size()],
+            binary,
+            sha,
+        );
         header.validate_fields(binary, true)?;
 
         // Sign the header.
@@ -304,7 +345,8 @@ impl Header {
         let reserved = &header_data[header.payload_size()..header_size];
 
         // Hash the binary with a streaming SHA-256
-        header.hash_streaming(reserved, binary_size, sha, sha_streaming, binary_reader)
+        header
+            .hash_streaming(reserved, binary_size, sha, sha_streaming, binary_reader)
             .map_err(|_| Error::HashError)?;
 
         header.verify_signatures(known_signers, secp)?;
@@ -465,7 +507,13 @@ impl Header {
 
     /// Compute the final hash from the header, reserved, and binary hashes
     /// Sets `self.hash` and `self.bin_hash`
-    fn finalize_hash(&mut self, header_hash: [u8; 32], reserved_hash: [u8; 32], bin_hash: [u8; 32], sha: &impl Sha256) {
+    fn finalize_hash(
+        &mut self,
+        header_hash: [u8; 32],
+        reserved_hash: [u8; 32],
+        bin_hash: [u8; 32],
+        sha: &impl Sha256,
+    ) {
         let mut hash_buf = [0u8; 128];
         hash_buf[0..32].copy_from_slice(&header_hash);
         hash_buf[32..64].copy_from_slice(&reserved_hash);
@@ -494,8 +542,7 @@ impl Header {
         sha: &impl Sha256,
         sha_streaming: &impl Sha256Streaming<Error = E>,
         binary_reader: R,
-    ) -> Result<(), E>
-    {
+    ) -> Result<(), E> {
         let header_hash = self.compute_header_fields_hash(sha);
         let reserved_hash = sha.hash(reserved);
         let bin_hash = sha_streaming.hash_streaming(binary_size, binary_reader)?;
@@ -509,7 +556,9 @@ impl Header {
         secp: &impl Secp256k1Verify,
     ) -> Result<(), Error> {
         if self.signature1 != [0; 64] {
-            if secp.verify_ecdsa(self.hash, self.signature1, self.pubkey1) != VerificationResult::Valid {
+            if secp.verify_ecdsa(self.hash, self.signature1, self.pubkey1)
+                != VerificationResult::Valid
+            {
                 return Err(Error::InvalidSignature1);
             }
             // Trusted scheme only
@@ -518,7 +567,9 @@ impl Header {
             }
         }
         if self.signature2 != [0; 64] {
-            if secp.verify_ecdsa(self.hash, self.signature2, self.pubkey2) != VerificationResult::Valid {
+            if secp.verify_ecdsa(self.hash, self.signature2, self.pubkey2)
+                != VerificationResult::Valid
+            {
                 return Err(Error::InvalidSignature2);
             }
             if !known_signers.is_empty()
@@ -536,9 +587,13 @@ impl Header {
     fn validate_fields(&self, binary: &[u8], check_size: bool) -> Result<(), Error> {
         // Validate that the version string is UTF-8 formatted according to SemVer, and
         // that the unused bytes are all zero.
-        let first_zero = self.version.iter().position(|&b| b == 0).unwrap_or(self.version.len());
-        let _version =
-            core::str::from_utf8(&self.version[..first_zero]).map_err(|_| Error::InvalidVersionUtf8)?;
+        let first_zero = self
+            .version
+            .iter()
+            .position(|&b| b == 0)
+            .unwrap_or(self.version.len());
+        let _version = core::str::from_utf8(&self.version[..first_zero])
+            .map_err(|_| Error::InvalidVersionUtf8)?;
         #[cfg(feature = "semver")]
         semver::Version::from_str(_version).map_err(|_| Error::InvalidVersionSemver)?;
         if self.version[first_zero..].iter().any(|&b| b != 0) {
@@ -547,7 +602,11 @@ impl Header {
 
         // Validate that the date string is UTF-8, and that the unused bytes are all
         // zero.
-        let first_zero = self.date.iter().position(|&b| b == 0).unwrap_or(self.date.len());
+        let first_zero = self
+            .date
+            .iter()
+            .position(|&b| b == 0)
+            .unwrap_or(self.date.len());
         core::str::from_utf8(&self.date[..first_zero]).map_err(|_| Error::InvalidDateUtf8)?;
         if self.date[first_zero..].iter().any(|&b| b != 0) {
             return Err(Error::InvalidDateTrailingBytes);
@@ -558,7 +617,10 @@ impl Header {
             let bin_size = u32::from_le_bytes(self.bin_size);
             let actual_bin_size = u32::try_from(binary.len()).map_err(|_| Error::BinaryTooLong)?;
             if bin_size != actual_bin_size {
-                return Err(Error::InvalidBinarySize { header: bin_size, actual: actual_bin_size });
+                return Err(Error::InvalidBinarySize {
+                    header: bin_size,
+                    actual: actual_bin_size,
+                });
             }
         }
 
@@ -736,8 +798,14 @@ impl core::fmt::Display for Error {
             Self::HeaderWithNoSignature => write!(f, "header with no signature"),
             Self::InvalidDateTrailingBytes => write!(f, "invalid date trailing bytes in header"),
             Self::InvalidDateUtf8 => write!(f, "invalid date UTF-8 in header"),
-            Self::InvalidBinarySize { header: in_header, actual } => {
-                write!(f, "invalid binary size in header: should be {actual}, but is {in_header}",)
+            Self::InvalidBinarySize {
+                header: in_header,
+                actual,
+            } => {
+                write!(
+                    f,
+                    "invalid binary size in header: should be {actual}, but is {in_header}",
+                )
             }
             Self::InvalidPubkey1 => write!(f, "invalid pubkey1 in header"),
             Self::InvalidPubkey2 => write!(f, "invalid pubkey2 in header"),

@@ -9,15 +9,24 @@ const KNOWN_PUBKEY3: [u8; 33] = [0xEF; 33];
 struct Secp256k1Sign([u8; 33]);
 
 impl crate::Secp256k1Sign for Secp256k1Sign {
-    fn sign_ecdsa(&self, _msg: [u8; 32]) -> [u8; 64] { [0xAB; 64] }
+    fn sign_ecdsa(&self, _msg: [u8; 32]) -> [u8; 64] {
+        [0xAB; 64]
+    }
 
-    fn pubkey(&self) -> [u8; 33] { self.0 }
+    fn pubkey(&self) -> [u8; 33] {
+        self.0
+    }
 }
 
 struct Secp256k1Verify;
 
 impl crate::Secp256k1Verify for Secp256k1Verify {
-    fn verify_ecdsa(&self, _msg: [u8; 32], _sig: [u8; 64], _pubkey: [u8; 33]) -> VerificationResult {
+    fn verify_ecdsa(
+        &self,
+        _msg: [u8; 32],
+        _sig: [u8; 64],
+        _pubkey: [u8; 33],
+    ) -> VerificationResult {
         VerificationResult::Valid
     }
 }
@@ -25,7 +34,9 @@ impl crate::Secp256k1Verify for Secp256k1Verify {
 struct Sha256;
 
 impl crate::Sha256 for Sha256 {
-    fn hash(&self, _data: &[u8]) -> [u8; 32] { [1; 32] }
+    fn hash(&self, _data: &[u8]) -> [u8; 32] {
+        [1; 32]
+    }
 }
 
 fn timestamp_for_date(year: i32, month: u32, day: u32) -> u32 {
@@ -187,7 +198,9 @@ fn trusted_signing() {
     assert!(&buf[240..HEADER_SIZE].iter().all(|&b| b == 0));
 
     // Add second signature.
-    header.add_second_signature(&Secp256k1Sign(KNOWN_PUBKEY3)).unwrap();
+    header
+        .add_second_signature(&Secp256k1Sign(KNOWN_PUBKEY3))
+        .unwrap();
 
     let mut buf = [0u8; HEADER_SIZE + 4];
     header.serialize(&mut buf).unwrap();
