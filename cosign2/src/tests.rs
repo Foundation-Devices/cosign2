@@ -328,3 +328,123 @@ fn date_format_examples() {
     .unwrap();
     assert_eq!(header.date(), "July 21, 2024");
 }
+
+struct RealSha256;
+
+impl crate::Sha256 for RealSha256 {
+    fn hash(&self, data: &[u8]) -> [u8; 32] {
+        <sha2::Sha256 as sha2::Digest>::digest(data).into()
+    }
+}
+
+#[test]
+fn unsigned_header_collects_two_signatures() {
+    let binary = [0x01, 0x02, 0x03, 0x04];
+    const HEADER_SIZE: usize = 1024;
+    let header = Header::new_unsigned(
+        Magic::Nrf52Ble,
+        "1.2.3",
+        1_700_000_000,
+        &binary[..],
+        &RealSha256,
+        HEADER_SIZE,
+    )
+    .unwrap();
+    let mut buf = [0u8; HEADER_SIZE + 4];
+    header.serialize(&mut buf).unwrap();
+    buf[HEADER_SIZE..].copy_from_slice(&binary);
+
+    let bin_hash = crate::Sha256::hash(&RealSha256, &binary);
+    let mut unsigned = Header::parse_unsigned(&buf[..HEADER_SIZE], bin_hash, &RealSha256)
+        .unwrap()
+        .unwrap();
+    assert_eq!(unsigned.digest(), header.digest());
+    assert_eq!(unsigned.version(), "1.2.3");
+    assert_eq!(unsigned.magic(), Magic::Nrf52Ble);
+
+    unsigned
+        .insert_signature(KNOWN_PUBKEY2, [0xAB; 64])
+        .unwrap();
+    assert!(matches!(
+        unsigned.insert_signature(KNOWN_PUBKEY2, [0xCD; 64]),
+        Err(Error::PubkeyAlreadyUsed)
+    ));
+    unsigned
+        .insert_signature(KNOWN_PUBKEY1, [0xCD; 64])
+        .unwrap();
+    assert!(matches!(
+        unsigned.insert_signature(KNOWN_PUBKEY3, [0xEF; 64]),
+        Err(Error::Signature2Present)
+    ));
+
+    unsigned.serialize(&mut buf).unwrap();
+    let parsed = Header::parse(
+        &buf[..],
+        &[KNOWN_PUBKEY1, KNOWN_PUBKEY2, KNOWN_PUBKEY3],
+        &RealSha256,
+        &Secp256k1Verify,
+        HEADER_SIZE,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(Trust::FullyTrusted, parsed.trust());
+    assert_eq!(parsed.digest(), header.digest());
+    assert_eq!(parsed.pubkey1(), KNOWN_PUBKEY2);
+    assert_eq!(parsed.pubkey2(), KNOWN_PUBKEY1);
+}
+
+#[test]
+fn parse_unsigned_rejects_malformed_headers() {
+    let binary = [0x01, 0x02, 0x03, 0x04];
+    const HEADER_SIZE: usize = 1024;
+    let header = Header::sign_new(
+        Magic::Atsama5d27KeyOs,
+        "1.2.3",
+        0,
+        Signer::Developer,
+        &binary[..],
+        &RealSha256,
+        &Secp256k1Sign(DEV_PUBKEY1),
+        HEADER_SIZE,
+    )
+    .unwrap();
+    let mut buf = [0u8; HEADER_SIZE];
+    header.serialize(&mut buf).unwrap();
+
+    assert!(matches!(
+        Header::parse_unsigned(&buf, [0; 32], &RealSha256),
+        Err(Error::HeaderAlreadySigned)
+    ));
+    assert!(matches!(
+        Header::parse_unsigned(&buf[..Header::MIN_SIZE - 1], [0; 32], &RealSha256),
+        Err(Error::HeaderTooShort)
+    ));
+
+    let unsigned = Header::new_unsigned(
+        Magic::Atsama5d27KeyOs,
+        "1.2.3",
+        0,
+        &binary[..],
+        &RealSha256,
+        HEADER_SIZE,
+    )
+    .unwrap();
+    unsigned.serialize(&mut buf).unwrap();
+    buf[HEADER_SIZE - 1] = 1;
+    assert!(matches!(
+        Header::parse_unsigned(&buf, [0; 32], &RealSha256),
+        Err(Error::InvalidReservedBytes)
+    ));
+
+    assert!(matches!(
+        Header::new_unsigned(
+            Magic::Atsama5d27KeyOs,
+            "1.2.3",
+            0,
+            &binary[..],
+            &RealSha256,
+            Header::MIN_SIZE - 1
+        ),
+        Err(Error::HeaderTooShort)
+    ));
+}

@@ -17,7 +17,7 @@ pub enum Args {
         input: PathBuf,
         output: Output,
         version: Option<semver::Version>,
-        target: Option<Target>,
+        target: Option<cosign2::Magic>,
         known_pubkeys: Vec<secp256k1::PublicKey>,
         developer: bool,
         header_size: usize,
@@ -28,12 +28,6 @@ pub enum Args {
 pub enum Output {
     InPlace,
     File(PathBuf),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Target {
-    Atsama5d27KeyOs,
-    Nrf52Ble,
 }
 
 pub fn args<I, T>(args: I) -> Result<Args, Error>
@@ -137,11 +131,7 @@ where
                 Output::File(output.unwrap())
             };
             let target = target
-                .map(|t| match t.as_str() {
-                    "atsama5d27-keyos" => Ok(Target::Atsama5d27KeyOs),
-                    "nrf52-ble" => Ok(Target::Nrf52Ble),
-                    _ => Err(Error::InvalidTarget(t)),
-                })
+                .map(|t| cosign2::Magic::from_target(&t).ok_or(Error::InvalidTarget(t)))
                 .transpose()?;
             let known_pubkeys = known_pubkeys
                 .into_iter()

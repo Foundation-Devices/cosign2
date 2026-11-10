@@ -204,6 +204,7 @@ version = "1.1.0"
 dependencies = [
  "chrono",
  "semver",
+ "sha2",
 ]
 
 [[package]]

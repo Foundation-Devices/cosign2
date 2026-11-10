@@ -169,6 +169,14 @@ impl Header {
         &self.bin_hash
     }
 
+    /// The digest that both signatures sign.
+    ///
+    /// All zeros if the header was created using
+    /// [`parse_unverified`](Header::parse_unverified).
+    pub fn digest(&self) -> &[u8; 32] {
+        &self.hash
+    }
+
     /// State of trust according to included signatures.
     pub fn trust(&self) -> Trust {
         self.trust
@@ -186,12 +194,44 @@ impl Header {
         secp: &impl Secp256k1Sign,
         header_size: usize,
     ) -> Result<Self, Error> {
+        let mut header = Self::new_unsigned(magic, version, timestamp, binary, sha, header_size)?;
+        match signer {
+            Signer::Trusted => {
+                // Trusted key is used, so both first and second signatures need to be filled
+                // in. This key is used for the first signature.
+                header.pubkey1 = secp.pubkey();
+                header.signature1 = secp.sign_ecdsa(header.hash);
+            }
+            Signer::Developer => {
+                // Developer key is used, so only the second signature is filled in.
+                // The first signature is left empty (zeroed out).
+                header.pubkey2 = secp.pubkey();
+                header.signature2 = secp.sign_ecdsa(header.hash);
+                header.trust = Trust::ThirdParty;
+            }
+        }
+        Ok(header)
+    }
+
+    /// Create a new header with both signature slots empty, to be signed with
+    /// [`insert_signature`](Header::insert_signature).
+    pub fn new_unsigned(
+        magic: Magic,
+        version: &str,
+        timestamp: u32,
+        binary: &[u8],
+        sha: &impl Sha256,
+        header_size: usize,
+    ) -> Result<Self, Error> {
         // Validate the version string.
         #[cfg(feature = "semver")]
         semver::Version::from_str(version).map_err(|_| Error::InvalidVersionSemver)?;
 
         if header_size > Self::MAX_SIZE {
             return Err(Error::HeaderTooLong);
+        }
+        if header_size < Self::MIN_SIZE {
+            return Err(Error::HeaderTooShort);
         }
 
         let mut header = Self {
@@ -220,24 +260,6 @@ impl Header {
             sha,
         );
         header.validate_fields(binary, true)?;
-
-        // Sign the header.
-        match signer {
-            Signer::Trusted => {
-                // Trusted key is used, so both first and second signatures need to be filled
-                // in. This key is used for the first signature.
-                header.pubkey1 = secp.pubkey();
-                header.signature1 = secp.sign_ecdsa(header.hash);
-            }
-            Signer::Developer => {
-                // Developer key is used, so only the second signature is filled in.
-                // The first signature is left empty (zeroed out).
-                header.pubkey2 = secp.pubkey();
-                header.signature2 = secp.sign_ecdsa(header.hash);
-                header.trust = Trust::ThirdParty;
-            }
-        }
-
         Ok(header)
     }
 
@@ -300,6 +322,45 @@ impl Header {
             Ok(()) => Ok(Some(header)),
             Err(e) => Err(e),
         }
+    }
+
+    /// Parse a header whose signature slots are both empty, computing its
+    /// [`digest`](Header::digest) from the hash of the binary instead of the
+    /// binary itself.
+    ///
+    /// `header` must be exactly the header, so its length is the header size.
+    /// The binary size field is not checked. If the header is missing, `None`
+    /// is returned.
+    pub fn parse_unsigned(
+        header: &[u8],
+        bin_hash: [u8; 32],
+        sha: &impl Sha256,
+    ) -> Result<Option<Self>, Error> {
+        if header.len() > Self::MAX_SIZE {
+            return Err(Error::HeaderTooLong);
+        }
+        if header.len() < Self::MIN_SIZE {
+            return Err(Error::HeaderTooShort);
+        }
+
+        let Some(mut parsed) = Self::deserialize(header, header.len())? else {
+            return Ok(None);
+        };
+        if parsed.signature1 != [0; 64] || parsed.signature2 != [0; 64] {
+            return Err(Error::HeaderAlreadySigned);
+        }
+        parsed.validate_fields(&[], false)?;
+        // `serialize` writes the padding as zeros, so other padding gives a digest the signed header
+        // can't reproduce.
+        let reserved = &header[parsed.payload_size()..];
+        if reserved.iter().any(|&byte| byte != 0) {
+            return Err(Error::InvalidReservedBytes);
+        }
+
+        let header_hash = parsed.compute_header_fields_hash(sha);
+        let reserved_hash = sha.hash(reserved);
+        parsed.finalize_hash(header_hash, reserved_hash, bin_hash, sha);
+        Ok(Some(parsed))
     }
 
     /// Parse a header with streaming hash computation
@@ -387,18 +448,30 @@ impl Header {
     /// The first signature must be present, and the second signature must be
     /// missing, otherwise an error is returned.
     pub fn add_second_signature(&mut self, secp: &impl Secp256k1Sign) -> Result<(), Error> {
+        if self.signature1 == [0; 64] && self.signature2 == [0; 64] {
+            return Err(Error::Signature1Missing);
+        }
+        self.insert_signature(secp.pubkey(), secp.sign_ecdsa(self.hash))
+    }
+
+    /// Put a signature over [`digest`](Header::digest) into the first empty
+    /// slot.
+    ///
+    /// The signature itself is not verified. An error is returned if the
+    /// second slot is already filled, or if `pubkey` already signed the first.
+    pub fn insert_signature(&mut self, pubkey: [u8; 33], signature: [u8; 64]) -> Result<(), Error> {
         if self.signature2 != [0; 64] {
             return Err(Error::Signature2Present);
         }
         if self.signature1 == [0; 64] {
-            return Err(Error::Signature1Missing);
-        }
-        let pubkey = secp.pubkey();
-        if self.pubkey1 == pubkey {
+            self.pubkey1 = pubkey;
+            self.signature1 = signature;
+        } else if self.pubkey1 == pubkey {
             return Err(Error::PubkeyAlreadyUsed);
+        } else {
+            self.pubkey2 = pubkey;
+            self.signature2 = signature;
         }
-        self.pubkey2 = pubkey;
-        self.signature2 = secp.sign_ecdsa(self.hash);
         Ok(())
     }
 
@@ -733,6 +806,23 @@ impl Magic {
             Self::Nrf52Ble => [0x62, 0x6c, 0x65, 0x66],
         }
     }
+
+    /// Parse a target name, as written in `cosign2.toml`.
+    pub fn from_target(target: &str) -> Option<Self> {
+        match target {
+            "atsama5d27-keyos" => Some(Self::Atsama5d27KeyOs),
+            "nrf52-ble" => Some(Self::Nrf52Ble),
+            _ => None,
+        }
+    }
+
+    /// The target name, as written in `cosign2.toml`.
+    pub fn target(&self) -> &'static str {
+        match self {
+            Self::Atsama5d27KeyOs => "atsama5d27-keyos",
+            Self::Nrf52Ble => "nrf52-ble",
+        }
+    }
 }
 
 fn ascii_digit(b: u32) -> u8 {
@@ -767,6 +857,7 @@ pub enum Error {
     HeaderTooShort,
     HeaderTooLong,
     HeaderWithNoSignature,
+    HeaderAlreadySigned,
     InvalidDateTrailingBytes,
     InvalidDateUtf8,
     InvalidBinarySize { header: u32, actual: u32 },
@@ -798,6 +889,7 @@ impl core::fmt::Display for Error {
             Self::HeaderTooShort => write!(f, "header too short"),
             Self::HeaderTooLong => write!(f, "header too long"),
             Self::HeaderWithNoSignature => write!(f, "header with no signature"),
+            Self::HeaderAlreadySigned => write!(f, "header is already signed"),
             Self::InvalidDateTrailingBytes => write!(f, "invalid date trailing bytes in header"),
             Self::InvalidDateUtf8 => write!(f, "invalid date UTF-8 in header"),
             Self::InvalidBinarySize {
