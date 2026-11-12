@@ -11,12 +11,26 @@ To install the CLI from source:
 cargo install --locked --git https://github.com/Foundation-Devices/cosign2.git cosign2-bin
 ```
 
+Add `--tag v2.0.0` to install a release.
+
 Or with Nix:
 
 ```bash
 nix run github:Foundation-Devices/cosign2 -- --help
 nix profile install github:Foundation-Devices/cosign2
 ```
+
+To build a static x86_64 Linux binary on macOS, for example for a Chromebook:
+
+```bash
+rustup target add x86_64-unknown-linux-musl
+brew install filosottile/musl-cross/musl-cross
+CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=x86_64-linux-musl-gcc \
+    cargo install --locked --git https://github.com/Foundation-Devices/cosign2.git cosign2-bin \
+    --target x86_64-unknown-linux-musl --root cosign2-linux
+```
+
+The binary is `cosign2-linux/bin/cosign2`.
 
 `nix develop` opens a shell with the Rust toolchain to work on the repository.
 
