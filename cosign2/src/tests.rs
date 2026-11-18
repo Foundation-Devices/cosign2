@@ -2,6 +2,9 @@ use super::*;
 
 const DEV_PUBKEY1: [u8; 33] = [0x12; 33];
 
+const MAGIC: Magic = Magic(*b"TST1");
+const OTHER_MAGIC: Magic = Magic(*b"TST2");
+
 const KNOWN_PUBKEY1: [u8; 33] = [0xAB; 33];
 const KNOWN_PUBKEY2: [u8; 33] = [0xCD; 33];
 const KNOWN_PUBKEY3: [u8; 33] = [0xEF; 33];
@@ -55,7 +58,7 @@ fn developer_signing() {
     let binary = [0x01, 0x02, 0x03, 0x04];
     const HEADER_SIZE: usize = 1024;
     let header = Header::sign_new(
-        Magic::Atsama5d27KeyOs,
+        MAGIC,
         "1.2.3",
         binary.len().try_into().unwrap(),
         Signer::Developer,
@@ -73,6 +76,7 @@ fn developer_signing() {
     buf[HEADER_SIZE..].copy_from_slice(&binary);
     let parsed = Header::parse(
         &buf[..],
+        &[MAGIC],
         &[KNOWN_PUBKEY1, KNOWN_PUBKEY2, KNOWN_PUBKEY3],
         &Sha256,
         &Secp256k1Verify,
@@ -102,7 +106,7 @@ fn developer_signing() {
     // The binary representation is correct.
     assert_eq!(buf.len(), HEADER_SIZE + binary.len());
     // Magic number.
-    assert_eq!(buf[..4], [0x50, 0x52, 0x4D, 0x31]);
+    assert_eq!(buf[..4], MAGIC.0);
     // Timestamp.
     assert_eq!(buf[4..8], header.timestamp().to_le_bytes(),);
     // Date.
@@ -129,7 +133,7 @@ fn trusted_signing() {
     let binary = [0x01, 0x02, 0x03, 0x04];
     const HEADER_SIZE: usize = 1024;
     let mut header = Header::sign_new(
-        Magic::Atsama5d27KeyOs,
+        MAGIC,
         "1.2.3-alpha1",
         binary.len().try_into().unwrap(),
         Signer::Trusted,
@@ -147,6 +151,7 @@ fn trusted_signing() {
     buf[HEADER_SIZE..].copy_from_slice(&binary);
     let parsed = Header::parse(
         &buf[..],
+        &[MAGIC],
         &[KNOWN_PUBKEY1, KNOWN_PUBKEY2, KNOWN_PUBKEY3],
         &Sha256,
         &Secp256k1Verify,
@@ -176,7 +181,7 @@ fn trusted_signing() {
     // The binary representation is correct.
     assert_eq!(buf.len(), HEADER_SIZE + binary.len());
     // Magic number.
-    assert_eq!(buf[..4], [0x50, 0x52, 0x4D, 0x31]);
+    assert_eq!(buf[..4], MAGIC.0);
     // Timestamp.
     assert_eq!(buf[4..8], header.timestamp().to_le_bytes());
     // Date.
@@ -207,6 +212,7 @@ fn trusted_signing() {
     buf[HEADER_SIZE..].copy_from_slice(&binary);
     let parsed = Header::parse(
         &buf[..],
+        &[MAGIC],
         &[KNOWN_PUBKEY1, KNOWN_PUBKEY2, KNOWN_PUBKEY3],
         &Sha256,
         &Secp256k1Verify,
@@ -236,7 +242,7 @@ fn trusted_signing() {
     // The binary representation is correct.
     assert_eq!(buf.len(), HEADER_SIZE + binary.len());
     // Magic number.
-    assert_eq!(buf[..4], [0x50, 0x52, 0x4D, 0x31]);
+    assert_eq!(buf[..4], MAGIC.0);
     // Timestamp.
     assert_eq!(buf[4..8], header.timestamp().to_le_bytes());
     // Date.
@@ -264,7 +270,7 @@ fn date_format_examples() {
     let binary = [0u8; 1];
 
     let header = Header::sign_new(
-        Magic::Atsama5d27KeyOs,
+        MAGIC,
         "1.2.3",
         timestamp_for_date(2026, 1, 13),
         Signer::Trusted,
@@ -277,7 +283,7 @@ fn date_format_examples() {
     assert_eq!(header.date(), "Jan. 13, 2026");
 
     let header = Header::sign_new(
-        Magic::Atsama5d27KeyOs,
+        MAGIC,
         "1.2.3",
         timestamp_for_date(2028, 8, 7),
         Signer::Trusted,
@@ -290,7 +296,7 @@ fn date_format_examples() {
     assert_eq!(header.date(), "Aug. 7, 2028");
 
     let header = Header::sign_new(
-        Magic::Atsama5d27KeyOs,
+        MAGIC,
         "1.2.3",
         timestamp_for_date(2025, 5, 12),
         Signer::Trusted,
@@ -303,7 +309,7 @@ fn date_format_examples() {
     assert_eq!(header.date(), "May 12, 2025");
 
     let header = Header::sign_new(
-        Magic::Atsama5d27KeyOs,
+        MAGIC,
         "1.2.3",
         timestamp_for_date(2027, 6, 9),
         Signer::Trusted,
@@ -316,7 +322,7 @@ fn date_format_examples() {
     assert_eq!(header.date(), "June 9, 2027");
 
     let header = Header::sign_new(
-        Magic::Atsama5d27KeyOs,
+        MAGIC,
         "1.2.3",
         timestamp_for_date(2024, 7, 21),
         Signer::Trusted,
@@ -342,7 +348,7 @@ fn unsigned_header_collects_two_signatures() {
     let binary = [0x01, 0x02, 0x03, 0x04];
     const HEADER_SIZE: usize = 1024;
     let header = Header::new_unsigned(
-        Magic::Nrf52Ble,
+        OTHER_MAGIC,
         "1.2.3",
         1_700_000_000,
         &binary[..],
@@ -355,12 +361,13 @@ fn unsigned_header_collects_two_signatures() {
     buf[HEADER_SIZE..].copy_from_slice(&binary);
 
     let bin_hash = crate::Sha256::hash(&RealSha256, &binary);
-    let mut unsigned = Header::parse_unsigned(&buf[..HEADER_SIZE], bin_hash, &RealSha256)
-        .unwrap()
-        .unwrap();
+    let mut unsigned =
+        Header::parse_unsigned(&buf[..HEADER_SIZE], &[OTHER_MAGIC], bin_hash, &RealSha256)
+            .unwrap()
+            .unwrap();
     assert_eq!(unsigned.digest(), header.digest());
     assert_eq!(unsigned.version(), "1.2.3");
-    assert_eq!(unsigned.magic(), Magic::Nrf52Ble);
+    assert_eq!(unsigned.magic(), OTHER_MAGIC);
 
     unsigned
         .insert_signature(KNOWN_PUBKEY2, [0xAB; 64])
@@ -380,6 +387,7 @@ fn unsigned_header_collects_two_signatures() {
     unsigned.serialize(&mut buf).unwrap();
     let parsed = Header::parse(
         &buf[..],
+        &[MAGIC, OTHER_MAGIC],
         &[KNOWN_PUBKEY1, KNOWN_PUBKEY2, KNOWN_PUBKEY3],
         &RealSha256,
         &Secp256k1Verify,
@@ -398,7 +406,7 @@ fn parse_unsigned_rejects_malformed_headers() {
     let binary = [0x01, 0x02, 0x03, 0x04];
     const HEADER_SIZE: usize = 1024;
     let header = Header::sign_new(
-        Magic::Atsama5d27KeyOs,
+        MAGIC,
         "1.2.3",
         0,
         Signer::Developer,
@@ -412,33 +420,26 @@ fn parse_unsigned_rejects_malformed_headers() {
     header.serialize(&mut buf).unwrap();
 
     assert!(matches!(
-        Header::parse_unsigned(&buf, [0; 32], &RealSha256),
+        Header::parse_unsigned(&buf, &[MAGIC], [0; 32], &RealSha256),
         Err(Error::HeaderAlreadySigned)
     ));
     assert!(matches!(
-        Header::parse_unsigned(&buf[..Header::MIN_SIZE - 1], [0; 32], &RealSha256),
+        Header::parse_unsigned(&buf[..Header::MIN_SIZE - 1], &[MAGIC], [0; 32], &RealSha256),
         Err(Error::HeaderTooShort)
     ));
 
-    let unsigned = Header::new_unsigned(
-        Magic::Atsama5d27KeyOs,
-        "1.2.3",
-        0,
-        &binary[..],
-        &RealSha256,
-        HEADER_SIZE,
-    )
-    .unwrap();
+    let unsigned =
+        Header::new_unsigned(MAGIC, "1.2.3", 0, &binary[..], &RealSha256, HEADER_SIZE).unwrap();
     unsigned.serialize(&mut buf).unwrap();
     buf[HEADER_SIZE - 1] = 1;
     assert!(matches!(
-        Header::parse_unsigned(&buf, [0; 32], &RealSha256),
+        Header::parse_unsigned(&buf, &[MAGIC], [0; 32], &RealSha256),
         Err(Error::InvalidReservedBytes)
     ));
 
     assert!(matches!(
         Header::new_unsigned(
-            Magic::Atsama5d27KeyOs,
+            MAGIC,
             "1.2.3",
             0,
             &binary[..],
@@ -446,5 +447,48 @@ fn parse_unsigned_rejects_malformed_headers() {
             Header::MIN_SIZE - 1
         ),
         Err(Error::HeaderTooShort)
+    ));
+}
+
+#[test]
+fn parse_ignores_headers_with_other_magics() {
+    let binary = [0x01, 0x02, 0x03, 0x04];
+    const HEADER_SIZE: usize = 1024;
+    let header = Header::sign_new(
+        MAGIC,
+        "1.2.3",
+        0,
+        Signer::Developer,
+        &binary[..],
+        &Sha256,
+        &Secp256k1Sign(DEV_PUBKEY1),
+        HEADER_SIZE,
+    )
+    .unwrap();
+    let mut buf = [0u8; HEADER_SIZE + 4];
+    header.serialize(&mut buf).unwrap();
+    buf[HEADER_SIZE..].copy_from_slice(&binary);
+
+    for magics in [&[OTHER_MAGIC][..], &[]] {
+        assert!(matches!(
+            Header::parse(&buf, magics, &[], &Sha256, &Secp256k1Verify, HEADER_SIZE),
+            Ok(None)
+        ));
+        assert!(matches!(
+            Header::parse_unverified(&buf, magics, HEADER_SIZE, true),
+            Ok(None)
+        ));
+    }
+    assert!(matches!(
+        Header::parse_unverified(&buf, &[OTHER_MAGIC, MAGIC], HEADER_SIZE, true),
+        Ok(Some(_))
+    ));
+
+    let unsigned =
+        Header::new_unsigned(MAGIC, "1.2.3", 0, &binary[..], &Sha256, HEADER_SIZE).unwrap();
+    unsigned.serialize(&mut buf).unwrap();
+    assert!(matches!(
+        Header::parse_unsigned(&buf[..HEADER_SIZE], &[OTHER_MAGIC], [0; 32], &Sha256),
+        Ok(None)
     ));
 }

@@ -105,7 +105,7 @@ impl Header {
 
     /// Magic number.
     pub fn magic(&self) -> Magic {
-        Magic::from_bytes(self.magic).expect("validated")
+        Magic(self.magic)
     }
 
     /// Binary timestamp in seconds since the Unix epoch.
@@ -235,7 +235,7 @@ impl Header {
         }
 
         let mut header = Self {
-            magic: magic.to_bytes(),
+            magic: magic.0,
             timestamp: timestamp.to_le_bytes(),
             date: [0; 14],
             version: [0; 20],
@@ -269,9 +269,11 @@ impl Header {
     /// signers. If the known signers slice is empty, any signer is
     /// accepted.
     ///
-    /// If the header is missing, `None` is returned.
+    /// If `data` doesn't start with one of `magics`, it has no header and
+    /// `None` is returned.
     pub fn parse(
         data: &[u8],
+        magics: &[Magic],
         known_signers: &[[u8; 33]],
         sha: &impl Sha256,
         secp: &impl Secp256k1Verify,
@@ -281,7 +283,7 @@ impl Header {
             return Err(Error::HeaderTooLong);
         }
 
-        let Some(mut header) = Header::deserialize(data, header_size)? else {
+        let Some(mut header) = Header::deserialize(data, magics, header_size)? else {
             return Ok(None);
         };
 
@@ -306,8 +308,12 @@ impl Header {
     ///
     /// Use the [`parse`](Header::parse) method to read and verify the header
     /// signatures.
+    ///
+    /// If `data` doesn't start with one of `magics`, it has no header and
+    /// `None` is returned.
     pub fn parse_unverified(
         data: &[u8],
+        magics: &[Magic],
         header_size: usize,
         check_size: bool,
     ) -> Result<Option<Self>, Error> {
@@ -315,7 +321,7 @@ impl Header {
             return Err(Error::HeaderTooLong);
         }
 
-        let Some(header) = Self::deserialize(data, header_size)? else {
+        let Some(header) = Self::deserialize(data, magics, header_size)? else {
             return Ok(None);
         };
         match header.validate_fields(&data[header.size..], check_size) {
@@ -329,10 +335,11 @@ impl Header {
     /// binary itself.
     ///
     /// `header` must be exactly the header, so its length is the header size.
-    /// The binary size field is not checked. If the header is missing, `None`
-    /// is returned.
+    /// The binary size field is not checked. If `header` doesn't start with
+    /// one of `magics`, `None` is returned.
     pub fn parse_unsigned(
         header: &[u8],
+        magics: &[Magic],
         bin_hash: [u8; 32],
         sha: &impl Sha256,
     ) -> Result<Option<Self>, Error> {
@@ -343,7 +350,7 @@ impl Header {
             return Err(Error::HeaderTooShort);
         }
 
-        let Some(mut parsed) = Self::deserialize(header, header.len())? else {
+        let Some(mut parsed) = Self::deserialize(header, magics, header.len())? else {
             return Ok(None);
         };
         if parsed.signature1 != [0; 64] || parsed.signature2 != [0; 64] {
@@ -371,6 +378,7 @@ impl Header {
     #[allow(clippy::too_many_arguments)]
     pub fn parse_streaming<E, R>(
         header_data: &[u8],
+        magics: &[Magic],
         binary_size: usize,
         known_signers: &[[u8; 33]],
         sha: &impl Sha256,
@@ -390,7 +398,7 @@ impl Header {
             return Err(Error::HeaderTooShort);
         }
 
-        let Some(mut header) = Header::deserialize(header_data, header_size)? else {
+        let Some(mut header) = Header::deserialize(header_data, magics, header_size)? else {
             return Ok(None);
         };
 
@@ -519,15 +527,19 @@ impl Header {
 
     /// Deserialize the header fields from a buffer.
     ///
-    /// Returns `None` if the buffer does not contain a header.
-    fn deserialize(data: &[u8], header_size: usize) -> Result<Option<Self>, Error> {
+    /// Returns `None` if the buffer does not start with one of `magics`.
+    fn deserialize(
+        data: &[u8],
+        magics: &[Magic],
+        header_size: usize,
+    ) -> Result<Option<Self>, Error> {
         if data.len() < 4 {
             return Ok(None);
         }
 
         let magic = data[..4].try_into().unwrap();
-        if Magic::from_bytes(magic).is_none() {
-            // Magic value is missing or not recognized, so this is not a header.
+        if !magics.contains(&Magic(magic)) {
+            // Magic value is missing or not accepted, so this is not a header.
             return Ok(None);
         }
 
@@ -781,49 +793,13 @@ pub enum Signer {
     Developer,
 }
 
-/// Magic number.
+/// Magic number at the start of the header.
 ///
-/// Used to identify the header, and to differentiate header formats for
-/// different devices if needed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Magic {
-    Atsama5d27KeyOs,
-    Nrf52Ble,
-}
-
-impl Magic {
-    pub fn from_bytes(b: [u8; 4]) -> Option<Self> {
-        match b {
-            [0x50, 0x52, 0x4D, 0x31] => Some(Self::Atsama5d27KeyOs),
-            [0x62, 0x6c, 0x65, 0x66] => Some(Self::Nrf52Ble),
-            _ => None,
-        }
-    }
-
-    pub fn to_bytes(&self) -> [u8; 4] {
-        match self {
-            Self::Atsama5d27KeyOs => [0x50, 0x52, 0x4D, 0x31],
-            Self::Nrf52Ble => [0x62, 0x6c, 0x65, 0x66],
-        }
-    }
-
-    /// Parse a target name, as written in `cosign2.toml`.
-    pub fn from_target(target: &str) -> Option<Self> {
-        match target {
-            "atsama5d27-keyos" => Some(Self::Atsama5d27KeyOs),
-            "nrf52-ble" => Some(Self::Nrf52Ble),
-            _ => None,
-        }
-    }
-
-    /// The target name, as written in `cosign2.toml`.
-    pub fn target(&self) -> &'static str {
-        match self {
-            Self::Atsama5d27KeyOs => "atsama5d27-keyos",
-            Self::Nrf52Ble => "nrf52-ble",
-        }
-    }
-}
+/// Identifies the header, and usually the device or image type it is for. The
+/// library gives the value no meaning: callers choose the magic a header is
+/// created with, and the magics they accept when parsing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Magic(pub [u8; 4]);
 
 fn ascii_digit(b: u32) -> u8 {
     match b {

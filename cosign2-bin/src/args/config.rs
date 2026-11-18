@@ -1,11 +1,14 @@
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+// An unknown key is an error, so a config still using the removed `target` key
+// fails instead of signing without its magic.
+#[serde(deny_unknown_fields)]
 pub struct Config {
     pub pubkey: Option<String>,
     pub secret: Option<PathBuf>,
     pub known_pubkeys: Option<Vec<String>>,
-    pub target: Option<String>,
+    pub magic: Option<String>,
 }
 
 impl Config {

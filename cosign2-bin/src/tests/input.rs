@@ -72,7 +72,7 @@ impl Params {
         self.reserved.resize(1024 - 240, 0);
         let mut input = Input {
             magic: if self.magic {
-                [0x50, 0x52, 0x4D, 0x31]
+                *b"TST1"
             } else {
                 [0x12, 0x34, 0x56, 0x78]
             },

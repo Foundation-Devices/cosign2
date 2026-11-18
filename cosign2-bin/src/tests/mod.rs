@@ -14,12 +14,31 @@ fn dump_no_header() {
         "dump",
         "-i",
         file.path().to_str().unwrap(),
+        "--magic",
+        "TST1",
         "--header-size",
         "1024",
     ]);
     assert_eq!(output.exit_code, ExitCode(0));
     assert!(output.stdout.contains("no header"));
     assert!(output.stderr.is_empty());
+}
+
+/// Without a magic, dump reads the first bytes of a file with no header as a
+/// header, and fails.
+#[test]
+fn dump_no_header_without_magic() {
+    let file = create_file(b"Hello, world!");
+    let output = test([
+        "dump",
+        "-i",
+        file.path().to_str().unwrap(),
+        "--header-size",
+        "1024",
+    ]);
+    assert_eq!(output.exit_code, ExitCode(1));
+    assert!(output.stdout.is_empty());
+    assert!(output.stderr.contains("header too short"));
 }
 
 /// Dump header contents of a valid file with a header containing one signature.
@@ -49,7 +68,7 @@ fn dump_valid_header_one_signature() {
     assert_eq!(output.exit_code, ExitCode(0));
 
     // Prints magic value.
-    assert!(output.stdout.contains("atsama5d27-keyos"));
+    assert!(output.stdout.contains("TST1 (54535431)"));
     // Prints human-readable timestamp in UTC.
     assert!(output.stdout.contains("2024-04-09 11:06:11 UTC"));
     // Prints timestamp as number of seconds since UNIX epoch.
@@ -106,7 +125,7 @@ fn dump_valid_header_two_signatures() {
     assert_eq!(output.exit_code, ExitCode(0));
 
     // Prints magic value.
-    assert!(output.stdout.contains("atsama5d27-keyos"));
+    assert!(output.stdout.contains("TST1 (54535431)"));
     // Prints human-readable timestamp in UTC.
     assert!(output.stdout.contains("2024-04-09 11:06:11 UTC"));
     // Prints timestamp as number of seconds since UNIX epoch.
@@ -131,8 +150,9 @@ fn dump_valid_header_two_signatures() {
     assert!(output.stderr.is_empty());
 }
 
-/// Dump header with the magic value changed. This is interpreted as a file with
-/// no header, since the magic value is used to identify the header.
+/// Dump header with another magic value than the requested one. This is
+/// interpreted as a file with no header, since the magic value is used to
+/// identify the header.
 #[test]
 fn dump_invalid_magic() {
     let (file, _, _) = input::Params {
@@ -152,6 +172,8 @@ fn dump_invalid_magic() {
         "dump",
         "-i",
         file.path().to_str().unwrap(),
+        "--magic",
+        "TST1",
         "--header-size",
         "1024",
     ]);
@@ -354,8 +376,8 @@ fn sign_with_trusted_keys() {
         "1024",
         "--binary-version",
         "1.2.4-alpha1",
-        "--target",
-        "atsama5d27-keyos",
+        "--magic",
+        "TST1",
         "-o",
         output_file.path().to_str().unwrap(),
     ]);
@@ -373,7 +395,7 @@ fn sign_with_trusted_keys() {
     ]);
 
     assert_eq!(output.exit_code, ExitCode(0));
-    assert!(output.stdout.contains("atsama5d27-keyos"));
+    assert!(output.stdout.contains("TST1 (54535431)"));
     assert!(output.stdout.contains("1.2.4-alpha1"));
     assert!(output.stdout.contains("13 B (13)"));
     assert!(output.stdout.contains(input::PUBKEY_1_HEX));
@@ -382,7 +404,8 @@ fn sign_with_trusted_keys() {
         .contains("000000000000000000000000000000000000000000000000000000000000000000"));
     assert!(output.stderr.is_empty());
 
-    // Sign the image with the second key.
+    // Sign the image with the second key. The magic is read from the existing
+    // header.
     let secret_pem = create_file(input::SECRET_2_PEM);
     let final_output_file = tempfile::NamedTempFile::new().unwrap();
     let output = test([
@@ -393,8 +416,6 @@ fn sign_with_trusted_keys() {
         output_file.path().to_str().unwrap(),
         "--header-size",
         "1024",
-        "--target",
-        "atsama5d27-keyos",
         "-o",
         final_output_file.path().to_str().unwrap(),
     ]);
@@ -412,7 +433,7 @@ fn sign_with_trusted_keys() {
     ]);
 
     assert_eq!(output.exit_code, ExitCode(0));
-    assert!(output.stdout.contains("atsama5d27-keyos"));
+    assert!(output.stdout.contains("TST1 (54535431)"));
     assert!(output.stdout.contains("1.2.4-alpha1"));
     assert!(output.stdout.contains("13 B (13)"));
     assert!(output.stdout.contains(input::PUBKEY_1_HEX));
@@ -450,7 +471,7 @@ fn sign_with_trusted_key_from_config() {
             pubkey = "{}"
             secret = "{}"
             known_pubkeys = ["{}", "{}"]
-            target = "atsama5d27-keyos"
+            magic = "TST1"
             "#,
             input::PUBKEY_2_HEX,
             secret_pem.path().to_str().unwrap(),
@@ -485,7 +506,7 @@ fn sign_with_trusted_key_from_config() {
     ]);
 
     assert_eq!(output.exit_code, ExitCode(0));
-    assert!(output.stdout.contains("atsama5d27-keyos"));
+    assert!(output.stdout.contains("TST1 (54535431)"));
     assert!(output.stdout.contains("0.0.77"));
     assert!(output.stdout.contains("13 B (13)"));
     assert!(output.stdout.contains(input::PUBKEY_1_HEX));
@@ -537,8 +558,8 @@ fn pubkey_in_config_and_cli() {
         input_file.path().to_str().unwrap(),
         "--header-size",
         "1024",
-        "--target",
-        "atsama5d27-keyos",
+        "--magic",
+        "TST1",
         "-o",
         output_file.path().to_str().unwrap(),
         "--config",
@@ -593,8 +614,8 @@ fn secret_in_config_and_cli() {
         input_file.path().to_str().unwrap(),
         "--header-size",
         "1024",
-        "--target",
-        "atsama5d27-keyos",
+        "--magic",
+        "TST1",
         "-o",
         output_file.path().to_str().unwrap(),
         "--config",
@@ -650,8 +671,8 @@ fn known_pubkeys_in_config_and_cli() {
         input_file.path().to_str().unwrap(),
         "--header-size",
         "1024",
-        "--target",
-        "atsama5d27-keyos",
+        "--magic",
+        "TST1",
         "-o",
         output_file.path().to_str().unwrap(),
         "--config",
@@ -670,9 +691,9 @@ fn known_pubkeys_in_config_and_cli() {
     assert!(buf.is_empty());
 }
 
-/// Attempt to specify the target both in the config file and on the CLI.
+/// Attempt to specify the magic both in the config file and on the CLI.
 #[test]
-fn target_in_config_and_cli() {
+fn magic_in_config_and_cli() {
     let (input_file, _, _) = input::Params {
         magic: true,
         timestamp: 1712660771,
@@ -690,7 +711,7 @@ fn target_in_config_and_cli() {
     let secret_pem = create_file(input::SECRET_2_PEM);
     let config_file = create_file(
         r#"
-        target = "atsama5d27-keyos"
+        magic = "TST1"
         "#
         .as_bytes(),
     );
@@ -705,8 +726,8 @@ fn target_in_config_and_cli() {
         input_file.path().to_str().unwrap(),
         "--header-size",
         "1024",
-        "--target",
-        "atsama5d27-keyos",
+        "--magic",
+        "TST1",
         "-o",
         output_file.path().to_str().unwrap(),
         "--config",
@@ -719,7 +740,7 @@ fn target_in_config_and_cli() {
     assert!(output.stdout.is_empty());
     assert!(output
         .stderr
-        .contains("target specified in both config and cli"));
+        .contains("magic specified in both config and cli"));
     let mut buf = Vec::new();
     output_file.as_file().read_to_end(&mut buf).unwrap();
     assert!(buf.is_empty());
@@ -742,8 +763,8 @@ fn sign_with_developer_key() {
         "1024",
         "--binary-version",
         "1.2.4-alpha1",
-        "--target",
-        "atsama5d27-keyos",
+        "--magic",
+        "TST1",
         "-o",
         output_file.path().to_str().unwrap(),
     ]);
@@ -761,7 +782,7 @@ fn sign_with_developer_key() {
     ]);
 
     assert_eq!(output.exit_code, ExitCode(0));
-    assert!(output.stdout.contains("atsama5d27-keyos"));
+    assert!(output.stdout.contains("TST1 (54535431)"));
     assert!(output.stdout.contains("1.2.4-alpha1"));
     assert!(output.stdout.contains("13 B (13)"));
     assert!(output.stdout.contains(input::PUBKEY_1_HEX));
@@ -787,8 +808,8 @@ fn sign_with_developer_key_in_place() {
         "1024",
         "--binary-version",
         "1.2.4-alpha1",
-        "--target",
-        "atsama5d27-keyos",
+        "--magic",
+        "TST1",
         "--in-place",
     ]);
 
@@ -805,7 +826,7 @@ fn sign_with_developer_key_in_place() {
     ]);
 
     assert_eq!(output.exit_code, ExitCode(0));
-    assert!(output.stdout.contains("atsama5d27-keyos"));
+    assert!(output.stdout.contains("TST1 (54535431)"));
     assert!(output.stdout.contains("1.2.4-alpha1"));
     assert!(output.stdout.contains("13 B (13)"));
     assert!(output.stdout.contains(input::PUBKEY_1_HEX));
@@ -832,8 +853,8 @@ fn sign_with_developer_key_in_place_with_output_file() {
         "1024",
         "--binary-version",
         "1.2.4-alpha1",
-        "--target",
-        "atsama5d27-keyos",
+        "--magic",
+        "TST1",
         "--in-place",
         "-o",
         output_file.path().to_str().unwrap(),
@@ -877,8 +898,8 @@ fn resign_with_developer_key() {
         input_file.path().to_str().unwrap(),
         "--header-size",
         "1024",
-        "--target",
-        "atsama5d27-keyos",
+        "--magic",
+        "TST1",
         "-o",
         output_file.path().to_str().unwrap(),
     ]);
@@ -909,8 +930,8 @@ fn sign_pubkey_mismatch() {
         input_file.path().to_str().unwrap(),
         "--header-size",
         "1024",
-        "--target",
-        "atsama5d27-keyos",
+        "--magic",
+        "TST1",
         "-o",
         output_file.path().to_str().unwrap(),
     ]);
@@ -952,8 +973,8 @@ fn resign_with_trusted_key() {
         input_file.path().to_str().unwrap(),
         "--header-size",
         "1024",
-        "--target",
-        "atsama5d27-keyos",
+        "--magic",
+        "TST1",
         "-o",
         output_file.path().to_str().unwrap(),
     ]);
@@ -992,8 +1013,8 @@ fn sign_header_contains_unknown_pubkey() {
         input_file.path().to_str().unwrap(),
         "--header-size",
         "1024",
-        "--target",
-        "atsama5d27-keyos",
+        "--magic",
+        "TST1",
         "-o",
         output_file.path().to_str().unwrap(),
         "--known-pubkey",
@@ -1034,8 +1055,8 @@ fn sign_header_with_unknown_pubkey() {
         input_file.path().to_str().unwrap(),
         "--header-size",
         "1024",
-        "--target",
-        "atsama5d27-keyos",
+        "--magic",
+        "TST1",
         "-o",
         output_file.path().to_str().unwrap(),
         "--known-pubkey",
@@ -1079,8 +1100,8 @@ fn sign_header_with_known_pubkeys() {
         input_file.path().to_str().unwrap(),
         "--header-size",
         "1024",
-        "--target",
-        "atsama5d27-keyos",
+        "--magic",
+        "TST1",
         "-o",
         output_file.path().to_str().unwrap(),
         "--known-pubkey",
@@ -1120,8 +1141,8 @@ fn sign_header_invalid_version_utf8() {
         input_file.path().to_str().unwrap(),
         "--header-size",
         "1024",
-        "--target",
-        "atsama5d27-keyos",
+        "--magic",
+        "TST1",
         "-o",
         output_file.path().to_str().unwrap(),
     ]);
@@ -1157,8 +1178,8 @@ fn sign_header_invalid_version_semver() {
         input_file.path().to_str().unwrap(),
         "--header-size",
         "1024",
-        "--target",
-        "atsama5d27-keyos",
+        "--magic",
+        "TST1",
         "-o",
         output_file.path().to_str().unwrap(),
     ]);
@@ -1194,8 +1215,8 @@ fn sign_header_invalid_date_utf8() {
         input_file.path().to_str().unwrap(),
         "--header-size",
         "1024",
-        "--target",
-        "atsama5d27-keyos",
+        "--magic",
+        "TST1",
         "-o",
         output_file.path().to_str().unwrap(),
     ]);
@@ -1231,8 +1252,8 @@ fn sign_header_invalid_binary_size() {
         input_file.path().to_str().unwrap(),
         "--header-size",
         "1024",
-        "--target",
-        "atsama5d27-keyos",
+        "--magic",
+        "TST1",
         "-o",
         output_file.path().to_str().unwrap(),
     ]);
@@ -1242,6 +1263,183 @@ fn sign_header_invalid_binary_size() {
     assert!(output.stderr.contains("invalid binary size"));
     assert!(output.stderr.contains("53"));
     assert!(output.stderr.contains("13"));
+}
+
+/// Sign an image with the magic given in hex.
+#[test]
+fn sign_with_hex_magic() {
+    let input_file = create_file(b"Hello, world!");
+    let output_file = tempfile::NamedTempFile::new().unwrap();
+    let secret_pem = create_file(input::SECRET_1_PEM);
+    let output = test([
+        "sign",
+        "--developer",
+        "--secret",
+        secret_pem.path().to_str().unwrap(),
+        "-i",
+        input_file.path().to_str().unwrap(),
+        "--header-size",
+        "1024",
+        "--binary-version",
+        "1.2.4",
+        "--magic",
+        "00ff1234",
+        "-o",
+        output_file.path().to_str().unwrap(),
+    ]);
+    assert_eq!(output.exit_code, ExitCode(0));
+    assert!(output.stderr.is_empty());
+
+    let mut buf = Vec::new();
+    output_file.as_file().read_to_end(&mut buf).unwrap();
+    assert_eq!(buf[..4], [0x00, 0xff, 0x12, 0x34]);
+
+    let output = test([
+        "dump",
+        "-i",
+        output_file.path().to_str().unwrap(),
+        "--magic",
+        "00FF1234",
+        "--header-size",
+        "1024",
+    ]);
+    assert_eq!(output.exit_code, ExitCode(0));
+    assert!(output.stdout.contains("00ff1234"));
+    assert!(output.stderr.is_empty());
+}
+
+/// Attempt to sign an image whose header has another magic than the requested
+/// one, which must not wrap the signed image in a second header.
+#[test]
+fn sign_header_with_other_magic() {
+    let (input_file, _, _) = input::Params {
+        magic: true,
+        timestamp: 1712660771,
+        date: b"Apr 09 2024".to_vec(),
+        version: b"0.0.77".to_vec(),
+        signature1: true,
+        signature2: false,
+        reserved: Default::default(),
+        binary: b"Hello, world!".to_vec(),
+        bin_size: 13,
+    }
+    .input()
+    .create_file();
+    let output_file = tempfile::NamedTempFile::new().unwrap();
+    let secret_pem = create_file(input::SECRET_2_PEM);
+    let output = test([
+        "sign",
+        "--secret",
+        secret_pem.path().to_str().unwrap(),
+        "-i",
+        input_file.path().to_str().unwrap(),
+        "--header-size",
+        "1024",
+        "--magic",
+        "TST2",
+        "-o",
+        output_file.path().to_str().unwrap(),
+    ]);
+
+    assert_eq!(output.exit_code, ExitCode(1));
+    assert!(output.stdout.is_empty());
+    assert!(output
+        .stderr
+        .contains("unexpected magic in header TST1 (54535431), expected TST2 (54535432)"));
+    let mut buf = Vec::new();
+    output_file.as_file().read_to_end(&mut buf).unwrap();
+    assert!(buf.is_empty());
+}
+
+/// Attempt to sign an image with no header without giving a magic.
+#[test]
+fn sign_no_header_without_magic() {
+    let input_file = create_file(b"Hello, world!");
+    let output_file = tempfile::NamedTempFile::new().unwrap();
+    let secret_pem = create_file(input::SECRET_1_PEM);
+    let output = test([
+        "sign",
+        "--developer",
+        "--secret",
+        secret_pem.path().to_str().unwrap(),
+        "-i",
+        input_file.path().to_str().unwrap(),
+        "--header-size",
+        "1024",
+        "--binary-version",
+        "1.2.4",
+        "-o",
+        output_file.path().to_str().unwrap(),
+    ]);
+
+    assert_eq!(output.exit_code, ExitCode(1));
+    assert!(output.stdout.is_empty());
+    assert!(output.stderr.contains("magic must be specified"));
+    let mut buf = Vec::new();
+    output_file.as_file().read_to_end(&mut buf).unwrap();
+    assert!(buf.is_empty());
+}
+
+/// Attempt to give magics that are neither 4 ASCII characters nor 8 hex digits.
+#[test]
+fn sign_invalid_magic() {
+    for magic in ["TST", "TST12", "54535431ff", "5453543g", "TSTé"] {
+        let input_file = create_file(b"Hello, world!");
+        let output_file = tempfile::NamedTempFile::new().unwrap();
+        let secret_pem = create_file(input::SECRET_1_PEM);
+        let output = test([
+            "sign",
+            "--developer",
+            "--secret",
+            secret_pem.path().to_str().unwrap(),
+            "-i",
+            input_file.path().to_str().unwrap(),
+            "--binary-version",
+            "1.2.4",
+            "--magic",
+            magic,
+            "-o",
+            output_file.path().to_str().unwrap(),
+        ]);
+
+        assert_eq!(output.exit_code, ExitCode(1));
+        assert!(output.stdout.is_empty());
+        assert!(output
+            .stderr
+            .contains(&format!(r#"user specified invalid magic: "{magic}""#)));
+    }
+}
+
+/// Attempt to sign with a config file that still uses the removed `target` key.
+#[test]
+fn config_with_target_key() {
+    let input_file = create_file(b"Hello, world!");
+    let output_file = tempfile::NamedTempFile::new().unwrap();
+    let secret_pem = create_file(input::SECRET_1_PEM);
+    let config_file = create_file(
+        r#"
+        target = "TST1"
+        "#
+        .as_bytes(),
+    );
+    let output = test([
+        "sign",
+        "--developer",
+        "--secret",
+        secret_pem.path().to_str().unwrap(),
+        "-i",
+        input_file.path().to_str().unwrap(),
+        "--binary-version",
+        "1.2.4",
+        "--config",
+        config_file.path().to_str().unwrap(),
+        "-o",
+        output_file.path().to_str().unwrap(),
+    ]);
+
+    assert_eq!(output.exit_code, ExitCode(1));
+    assert!(output.stdout.is_empty());
+    assert!(output.stderr.contains("unknown field `target`"));
 }
 
 fn test<const N: usize>(args: [&str; N]) -> Output {

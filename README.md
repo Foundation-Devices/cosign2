@@ -60,6 +60,7 @@ Usage: cosign2 dump [OPTIONS] --input <INPUT>
 
 Options:
   -i, --input <INPUT>              The binary file
+      --magic <MAGIC>              Header magic, as 4 ASCII characters or 8 hex digits [default: the first 4 bytes of the file]
       --header-size <HEADER_SIZE>  Size of the header in bytes [default: 2048]
   -h, --help                       Print help
 ```
@@ -88,8 +89,8 @@ Options:
           Version to write in the header
       --developer
           Developer mode, signs with a single key
-      --target <TARGET>
-          Target device. Valid values are "atsama5d27-keyos"
+      --magic <MAGIC>
+          Header magic, as 4 ASCII characters or 8 hex digits
       --known-pubkey <KNOWN_PUBKEY>
           Known public keys to accept signatures from, separated by commas
       --header-size <HEADER_SIZE>
@@ -98,9 +99,17 @@ Options:
           Print help
 ```
 
-Signing a binary without a header requires a target and a binary version, from the CLI or
-the config file. The target accepts `atsama5d27-keyos` and `nrf52-ble`, and is stored in the
-header magic.
+The magic is the 4 bytes a header starts with. It identifies the header, and usually the
+device or image type the binary is for. `cosign2` gives it no meaning: pick one per image type
+and give it as 4 ASCII characters (`ABC1`) or 8 hex digits (`41424331`).
+
+Signing a binary without a header requires a magic and a binary version, from the CLI or the
+config file. When the binary already has a header, its magic is used, and a different
+`--magic` is an error.
+
+`dump --magic` reports a file that doesn't start with that magic as having no header. Without
+`--magic`, `dump` reads the first 4 bytes of the file as the magic, so a file with no header
+gives an error.
 
 The header size must be between 256 and 4096 bytes, and `dump` must be given the size the
 binary was signed with.
@@ -133,11 +142,11 @@ known_pubkeys = [
     "038de8dd1cbad8bf1da7ff64b8a9b4a375f0205eff41f7f9dca8e91c4cf0951daa",
     "03cb8e4219d3c8f269ab2ed3acb71a4b1722c76a0c348ea11fa79b4639bef45094",
 ]
-target = "atsama5d27-keyos"
+magic = "ABC1"
 ```
 
-All the fields are optional. Specifying the same argument in the CLI and in the config
-file results in an error.
+All the fields are optional, and an unknown field is an error. Specifying the same argument
+in the CLI and in the config file results in an error.
 
 To use the config file, pass it to the sign command:
 
@@ -181,7 +190,7 @@ Update the configuration toml file:
 cosign2 sign \
     --secret private-key.pem \
     -i unsigned.img \
-    --target atsama5d27-keyos \
+    --magic ABC1 \
     --binary-version 0.0.121 \
     -o signed.img
 ```
@@ -218,6 +227,10 @@ It has no default features:
 The library does no cryptography itself: the caller implements the `Sha256`,
 `Sha256Streaming`, `Secp256k1Sign` and `Secp256k1Verify` traits.
 
+- `Magic` is the 4-byte value a header starts with. The caller chooses the magic a header is
+  built with, and the parse functions take the magics they accept: data that starts with any
+  other value has no header, so they return `None`. A verifier that passes only its own magic
+  rejects images made for other devices.
 - `Header::sign_new` builds and signs a header; `Header::parse` verifies one against the known
   signers and reports its `Trust`.
 - For signers that never see the binary, `Header::new_unsigned` builds a header with both slots

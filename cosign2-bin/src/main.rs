@@ -48,21 +48,31 @@ where
     T: Into<OsString> + Clone,
 {
     match args::args(args)? {
-        args::Args::Dump { input, header_size } => {
+        args::Args::Dump {
+            input,
+            magic,
+            header_size,
+        } => {
             let mut input_buf = Vec::new();
             std::fs::File::open(input)
                 .map_err(Error::OpenInputFile)?
                 .read_to_end(&mut input_buf)
                 .map_err(Error::ReadInputFile)?;
+            // Without a magic, whatever the file starts with is read as one. A header that isn't
+            // well-formed must still give an error, not "no header found", so it can't be
+            // detected with `header_magic`.
+            let magic =
+                magic.or_else(|| Some(cosign2::Magic(input_buf.get(..4)?.try_into().ok()?)));
             match cosign2::Header::parse(
                 &input_buf,
+                magic.as_slice(),
                 &[],
                 &Sha256,
                 &Secp256k1Verify::default(),
                 header_size,
             )? {
                 Some(header) => {
-                    let magic = header.magic().target();
+                    let magic = display_magic(header.magic());
                     let timestamp = chrono::DateTime::from_timestamp(header.timestamp().into(), 0)
                         .expect("valid timestamp");
                     writeln!(&mut stdout, "{:10} {magic}", "magic".bold())
@@ -142,7 +152,7 @@ where
             input: input_path,
             output,
             version,
-            target: magic,
+            magic,
             known_pubkeys,
             developer,
             header_size,
@@ -195,8 +205,20 @@ where
                 .read_to_end(&mut input_buf)
                 .map_err(Error::ReadInputFile)?;
 
+            // A header already in the file must have the requested magic: with another one,
+            // the signed file would be wrapped in a second header. Without a requested magic,
+            // the existing header's is used.
+            let existing_magic = header_magic(&input_buf, header_size);
+            if let (Some(expected), Some(header)) = (magic, existing_magic) {
+                if header != expected {
+                    return Err(Error::MagicMismatch { header, expected });
+                }
+            }
+            let magic = magic.or(existing_magic);
+
             let (header, binary) = match cosign2::Header::parse(
                 &input_buf,
+                magic.as_slice(),
                 known_pubkeys.as_slice(),
                 &Sha256,
                 &Secp256k1Verify::default(),
@@ -213,22 +235,13 @@ where
                         }
                         _ => {}
                     }
-                    match magic {
-                        Some(magic) if header.magic() != magic => {
-                            return Err(Error::MagicMismatch {
-                                header: header.magic(),
-                                expected: magic,
-                            });
-                        }
-                        _ => {}
-                    }
                     header.add_second_signature(&Secp256k1Sign::new(secret))?;
                     (header, &input_buf[header_size..])
                 }
                 // If no header is present, create and sign a new header.
                 None => {
                     let header = cosign2::Header::sign_new(
-                        magic.ok_or(Error::TargetMissing)?,
+                        magic.ok_or(Error::MagicMissing)?,
                         &version.ok_or(Error::VersionMissing)?.to_string(),
                         chrono::Utc::now().timestamp().try_into().expect("not 2106"),
                         if developer {
@@ -278,6 +291,7 @@ where
                 .map_err(Error::ReadOutputFile)?;
             cosign2::Header::parse(
                 &output_buf,
+                &[header.magic()],
                 &known_pubkeys,
                 &Sha256,
                 &Secp256k1Verify::default(),
@@ -288,6 +302,26 @@ where
         }
     }
     Ok(())
+}
+
+/// The magic of the header `data` starts with, whatever its value, if that header
+/// is well-formed. Its signatures are not checked.
+fn header_magic(data: &[u8], header_size: usize) -> Option<cosign2::Magic> {
+    let magic = cosign2::Magic(data.get(..4)?.try_into().ok()?);
+    cosign2::Header::parse_unverified(data, &[magic], header_size, true)
+        .ok()
+        .flatten()
+        .map(|header| header.magic())
+}
+
+/// A magic as text when its bytes are printable ASCII, followed by its hex.
+fn display_magic(magic: cosign2::Magic) -> String {
+    let hex = hex::encode(magic.0);
+    if magic.0.iter().all(u8::is_ascii_graphic) {
+        format!("{} ({hex})", String::from_utf8_lossy(&magic.0))
+    } else {
+        hex
+    }
 }
 
 #[derive(Debug)]
@@ -418,6 +452,7 @@ enum Error {
         header: cosign2::Magic,
         expected: cosign2::Magic,
     },
+    MagicMissing,
     MoveTempFile(std::io::Error),
     OpenInputFile(std::io::Error),
     OpenOutputFile(std::io::Error),
@@ -427,7 +462,6 @@ enum Error {
     ReadOutputFile(std::io::Error),
     SeekOutputFile(std::io::Error),
     Stdout(std::io::Error),
-    TargetMissing,
     UnknownSigner,
     VersionMismatch {
         header: String,
@@ -460,8 +494,15 @@ impl std::fmt::Display for Error {
                 write!(
                     f,
                     "unexpected magic in header {}, expected {}",
-                    hex::encode(header.to_bytes()),
-                    hex::encode(expected.to_bytes())
+                    display_magic(*header),
+                    display_magic(*expected),
+                )
+            }
+            Error::MagicMissing => {
+                write!(
+                    f,
+                    "magic must be specified, either with --magic or in the config file, \
+                     to sign a file without a header"
                 )
             }
             Error::MoveTempFile(e) => write!(f, "failed to move temporary file to output: {e}"),
@@ -483,12 +524,6 @@ impl std::fmt::Display for Error {
             Error::ReadOutputFile(e) => write!(f, "failed to read output file: {e}"),
             Error::SeekOutputFile(e) => write!(f, "failed to seek output file: {e}"),
             Error::Stdout(e) => write!(f, "failed to write to stdout: {e}"),
-            Error::TargetMissing => {
-                write!(
-                    f,
-                    "target must be specified, either with --target or in the config file"
-                )
-            }
             Error::UnknownSigner => write!(f, "signing key is not in known pubkeys list"),
             Error::VersionMismatch { header, expected } => {
                 write!(

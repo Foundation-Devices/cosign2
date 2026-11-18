@@ -18,6 +18,10 @@ pub enum Command {
         /// The binary file.
         #[clap(short, long)]
         input: PathBuf,
+        /// Header magic, as 4 ASCII characters or 8 hex digits [default: the
+        /// first 4 bytes of the file]
+        #[clap(long)]
+        magic: Option<String>,
         /// Size of the header in bytes.
         #[clap(long, default_value_t = Header::DEFAULT_SIZE as u16, value_parser = clap::value_parser!(u16).range(Header::MIN_SIZE as i64..=Header::MAX_SIZE as i64))]
         header_size: u16,
@@ -49,9 +53,9 @@ pub enum Command {
         /// Developer mode, signs with a single key.
         #[clap(long)]
         developer: bool,
-        /// Target device. Valid values are "atsama5d27-keyos".
+        /// Header magic, as 4 ASCII characters or 8 hex digits.
         #[clap(long)]
-        target: Option<String>,
+        magic: Option<String>,
         /// Known public keys to accept signatures from, separated by commas.
         #[clap(long)]
         known_pubkey: Option<Vec<String>>,

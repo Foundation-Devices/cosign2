@@ -9,7 +9,11 @@ pub use config::Error as ConfigError;
 #[derive(Debug, Clone)]
 pub enum Args {
     /// Dump the header contents to stdout.
-    Dump { input: PathBuf, header_size: usize },
+    Dump {
+        input: PathBuf,
+        magic: Option<cosign2::Magic>,
+        header_size: usize,
+    },
     /// Sign a binary file.
     Sign {
         pubkey: Option<secp256k1::PublicKey>,
@@ -17,7 +21,7 @@ pub enum Args {
         input: PathBuf,
         output: Output,
         version: Option<semver::Version>,
-        target: Option<cosign2::Magic>,
+        magic: Option<cosign2::Magic>,
         known_pubkeys: Vec<secp256k1::PublicKey>,
         developer: bool,
         header_size: usize,
@@ -39,9 +43,11 @@ where
     match cli.command {
         cli::Command::Dump {
             input: file,
+            magic,
             header_size,
         } => Ok(Args::Dump {
             input: file,
+            magic: magic.map(parse_magic).transpose()?,
             header_size: header_size.into(),
         }),
         cli::Command::Sign {
@@ -53,7 +59,7 @@ where
             output,
             binary_version,
             developer,
-            target,
+            magic,
             known_pubkey: known_pubkeys,
             header_size,
         } => {
@@ -74,7 +80,7 @@ where
             let config_known_pubkeys = config
                 .as_ref()
                 .and_then(|config| config.known_pubkeys.clone());
-            let config_target = config.as_ref().and_then(|config| config.target.clone());
+            let config_magic = config.as_ref().and_then(|config| config.magic.clone());
 
             // Reconcile the CLI and config arguments. Error if anything is specified both
             // on the CLI and in the config file.
@@ -96,11 +102,11 @@ where
                 (Some(known_pubkeys), None) => known_pubkeys,
                 (Some(_), Some(_)) => return Err(Error::KnownPubkeysInConfigAndCli),
             };
-            let target = match (target, config_target) {
+            let magic = match (magic, config_magic) {
                 (None, None) => None,
-                (None, Some(target)) => Some(target),
-                (Some(target), None) => Some(target),
-                (Some(_), Some(_)) => return Err(Error::TargetInConfigAndCli),
+                (None, Some(magic)) => Some(magic),
+                (Some(magic), None) => Some(magic),
+                (Some(_), Some(_)) => return Err(Error::MagicInConfigAndCli),
             };
 
             // Parse the arguments.
@@ -130,9 +136,7 @@ where
             } else {
                 Output::File(output.unwrap())
             };
-            let target = target
-                .map(|t| cosign2::Magic::from_target(&t).ok_or(Error::InvalidTarget(t)))
-                .transpose()?;
+            let magic = magic.map(parse_magic).transpose()?;
             let known_pubkeys = known_pubkeys
                 .into_iter()
                 .map(|known_pubkey| {
@@ -150,13 +154,23 @@ where
                 input,
                 output,
                 version: binary_version,
-                target,
+                magic,
                 developer,
                 known_pubkeys,
                 header_size: header_size.into(),
             })
         }
     }
+}
+
+/// Parse a magic given as 4 ASCII characters or 8 hex digits.
+fn parse_magic(magic: String) -> Result<cosign2::Magic, Error> {
+    let bytes = match magic.len() {
+        4 if magic.is_ascii() => magic.as_bytes().to_vec(),
+        8 => hex::decode(&magic).map_err(|_| Error::InvalidMagic(magic.clone()))?,
+        _ => return Err(Error::InvalidMagic(magic)),
+    };
+    Ok(cosign2::Magic(bytes.try_into().expect("4 bytes")))
 }
 
 #[derive(Debug)]
@@ -166,12 +180,13 @@ pub enum Error {
     InPlaceAndOutputSpecified,
     InvalidKnownPubkey(String),
     InvalidKnownPubkeyHex(String),
+    InvalidMagic(String),
     InvalidPemTag(String),
     InvalidPubkey(secp256k1::Error),
     InvalidPubkeyHex,
     InvalidSecretKey(secp256k1::Error),
-    InvalidTarget(String),
     KnownPubkeysInConfigAndCli,
+    MagicInConfigAndCli,
     ParseDerContent(sec1::der::Error),
     ParsePemFile(pem::PemError),
     PubkeyInConfigAndCli,
@@ -179,7 +194,6 @@ pub enum Error {
     SecretInConfigAndCli,
     SecretMissing,
     SecretPathNotAbsoluteInConfig(PathBuf),
-    TargetInConfigAndCli,
 }
 
 impl From<pem::PemError> for Error {
@@ -212,18 +226,22 @@ impl std::fmt::Display for Error {
                     pubkey
                 )
             }
+            Error::InvalidMagic(magic) => {
+                write!(
+                    f,
+                    r#"user specified invalid magic: "{magic}", expected 4 ASCII characters or 8 hex digits"#
+                )
+            }
             Error::InvalidPemTag(tag) => {
                 write!(f, r#"invalid PEM tag: "{tag}", expected "EC PRIVATE KEY""#)
             }
             Error::InvalidPubkey(e) => write!(f, "user specified invalid public key: {e}"),
             Error::InvalidPubkeyHex => write!(f, "user specified invalid public key hex"),
             Error::InvalidSecretKey(e) => write!(f, "user specified invalid secret key: {e}"),
-            Error::InvalidTarget(target) => {
-                write!(f, r#"user specified invalid target: "{target}""#)
-            }
             Error::KnownPubkeysInConfigAndCli => {
                 write!(f, "known pubkeys specified in both config and cli")
             }
+            Error::MagicInConfigAndCli => write!(f, "magic specified in both config and cli"),
             Error::ParseDerContent(e) => {
                 write!(f, "failed to parse DER content inside PEM file: {e}")
             }
@@ -239,7 +257,6 @@ impl std::fmt::Display for Error {
                     path.to_str().unwrap_or("<invalid path>")
                 )
             }
-            Error::TargetInConfigAndCli => write!(f, "target specified in both config and cli"),
         }
     }
 }
