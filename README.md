@@ -11,7 +11,7 @@ To install the CLI from source:
 cargo install --locked --git https://github.com/Foundation-Devices/cosign2.git cosign2-bin
 ```
 
-Add `--tag v2.0.0` to install a release.
+Add `--tag v3.0.0` to install a release.
 
 Or with Nix:
 
